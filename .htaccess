@@ -1,0 +1,7 @@
+<Files "secrets.php">
+    Require all denied
+</Files>
+
+<FilesMatch "^(secrets|holiday-secrets)\.php$">
+    Require all denied
+</FilesMatch>

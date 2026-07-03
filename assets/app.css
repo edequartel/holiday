@@ -1,0 +1,15 @@
+#map {
+    height: 520px;
+    border-radius: 0 0 0.5rem 0.5rem;
+}
+.packed {
+    text-decoration: line-through;
+    color: #6c757d;
+}
+.map-popup-title {
+    font-weight: 700;
+}
+@media print {
+    .no-print { display: none !important; }
+    #map { height: 360px; }
+}
