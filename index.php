@@ -1244,12 +1244,20 @@ mapPoints.forEach(p => {
 });
 let routeLine = null;
 const routeArrows = L.layerGroup().addTo(map);
+const routeSegments = [];
 if (routeLatLngs.length > 1) {
-    routeLine = L.polyline(routeLatLngs, {
+    const curvedRoute = [];
+    for (let i = 0; i < routeLatLngs.length - 1; i++) {
+        const segment = geodesicSegment(routeLatLngs[i], routeLatLngs[i + 1], 48);
+        routeSegments.push(segment);
+        curvedRoute.push(...(i === 0 ? segment : segment.slice(1)));
+    }
+    routeLine = L.polyline(curvedRoute, {
         color: '#206bc4',
         weight: 3,
         opacity: 0.8,
-        dashArray: '8 8'
+        dashArray: '9 7',
+        lineCap: 'round'
     }).addTo(map);
     drawRouteArrows();
     map.on('zoomend moveend', drawRouteArrows);
@@ -1258,15 +1266,14 @@ if (markers.length > 1) map.fitBounds(L.featureGroup(markers).getBounds().pad(0.
 
 function drawRouteArrows() {
     routeArrows.clearLayers();
-    for (let i = 0; i < routeLatLngs.length - 1; i++) {
-        const from = L.latLng(routeLatLngs[i]);
-        const to = L.latLng(routeLatLngs[i + 1]);
-        if (from.equals(to)) continue;
+    routeSegments.forEach(segment => {
+        if (segment.length < 3) return;
 
-        const midpoint = L.latLng((from.lat + to.lat) / 2, (from.lng + to.lng) / 2);
-        const fromPoint = map.latLngToLayerPoint(from);
-        const toPoint = map.latLngToLayerPoint(to);
-        const angle = Math.atan2(toPoint.y - fromPoint.y, toPoint.x - fromPoint.x) * 180 / Math.PI;
+        const middleIndex = Math.floor(segment.length / 2);
+        const midpoint = L.latLng(segment[middleIndex]);
+        const beforePoint = map.latLngToLayerPoint(L.latLng(segment[middleIndex - 1]));
+        const afterPoint = map.latLngToLayerPoint(L.latLng(segment[middleIndex + 1]));
+        const angle = Math.atan2(afterPoint.y - beforePoint.y, afterPoint.x - beforePoint.x) * 180 / Math.PI;
 
         L.marker(midpoint, {
             interactive: false,
@@ -1277,8 +1284,37 @@ function drawRouteArrows() {
                 iconAnchor: [11, 11]
             })
         }).addTo(routeArrows);
-    }
+    });
 }
+
+function geodesicSegment(start, end, steps) {
+    const lat1 = toRad(start[0]);
+    const lon1 = toRad(start[1]);
+    const lat2 = toRad(end[0]);
+    const lon2 = toRad(end[1]);
+    const delta = 2 * Math.asin(Math.sqrt(
+        Math.sin((lat2 - lat1) / 2) ** 2 +
+        Math.cos(lat1) * Math.cos(lat2) * Math.sin((lon2 - lon1) / 2) ** 2
+    ));
+
+    if (!delta) return [start, end];
+
+    const points = [];
+    for (let i = 0; i <= steps; i++) {
+        const f = i / steps;
+        const a = Math.sin((1 - f) * delta) / Math.sin(delta);
+        const b = Math.sin(f * delta) / Math.sin(delta);
+        const x = a * Math.cos(lat1) * Math.cos(lon1) + b * Math.cos(lat2) * Math.cos(lon2);
+        const y = a * Math.cos(lat1) * Math.sin(lon1) + b * Math.cos(lat2) * Math.sin(lon2);
+        const z = a * Math.sin(lat1) + b * Math.sin(lat2);
+        points.push([toDeg(Math.atan2(z, Math.sqrt(x * x + y * y))), toDeg(Math.atan2(y, x))]);
+    }
+
+    return points;
+}
+
+function toRad(degrees) { return degrees * Math.PI / 180; }
+function toDeg(radians) { return radians * 180 / Math.PI; }
 
 function focusLocation(pointId) {
     const marker = markersById[pointId];
