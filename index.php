@@ -241,7 +241,10 @@ const tripId = <?= (int)$tripId ?>;
 const mapPoints = <?= $mapJson ?: '[]' ?>;
 const defaultCenter = mapPoints.length ? [parseFloat(mapPoints[0].latitude), parseFloat(mapPoints[0].longitude)] : [23.6978, 120.9605];
 const map = L.map('map').setView(defaultCenter, mapPoints.length ? 12 : 7);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }).addTo(map);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+}).addTo(map);
 const iconMap = {hotel:'🏨', parking:'🅿️', poi:'📍', restaurant:'🍜', transport:'🚆', other:'⭐'};
 const markers = [];
 mapPoints.forEach(p => {
