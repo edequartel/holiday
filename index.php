@@ -935,6 +935,9 @@ document.addEventListener('submit', event => {
     <div class="page-header d-print-none"><div class="container-xl"><div class="row align-items-center">
         <div class="col"><h2 class="page-title"><i class="ti ti-plane-departure me-2"></i>Holiday Planner</h2><div class="text-secondary">Trips · flights · itinerary · map · OpenAI POI suggestions</div></div>
         <div class="col-auto d-flex gap-2">
+            <?php if ($trip): ?>
+                <a class="btn btn-outline-primary" href="itinerary-pdf.php?trip_id=<?= (int)$tripId ?>" target="_blank" rel="noopener"><i class="ti ti-file-type-pdf me-1"></i>Itinerary PDF</a>
+            <?php endif; ?>
             <form method="post">
                 <input type="hidden" name="action" value="git_pull">
                 <input type="hidden" name="trip_id" value="<?= $tripId ?>">
