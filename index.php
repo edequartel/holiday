@@ -53,6 +53,11 @@ if ($action === 'import_day_pdf') {
     redirect_to_trip($tripIdPost);
 }
 
+if ($action === 'cleanup_duplicate_documents') {
+    $_SESSION['document_import_result'] = cleanup_duplicate_documents($pdo, $tripIdPost);
+    redirect_to_trip($tripIdPost);
+}
+
 if ($action === 'add_day') {
     $stmt = $pdo->prepare('INSERT INTO itinerary_days (trip_id, day_date, location, title, details, transport, hotel, url) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
     $stmt->execute([$tripIdPost, $_POST['day_date'], $_POST['location'], $_POST['title'], $_POST['details'], $_POST['transport'], $_POST['hotel'], $_POST['url']]);
@@ -244,6 +249,76 @@ function delete_uploaded_document_file(PDO $pdo, string $relativePath, int $dele
     if ($baseDir && $filePath && strncmp($filePath, $allowedPrefix, strlen($allowedPrefix)) === 0 && is_file($filePath)) {
         @unlink($filePath);
     }
+}
+
+function delete_uploaded_document_file_if_unused(PDO $pdo, string $relativePath): void
+{
+    if (trim($relativePath) === '') {
+        return;
+    }
+
+    $stmt = $pdo->prepare('SELECT COUNT(*) FROM day_documents WHERE file_path=?');
+    $stmt->execute([$relativePath]);
+    if ((int)$stmt->fetchColumn() > 0) {
+        return;
+    }
+
+    $baseDir = realpath(__DIR__ . '/uploads/day-documents');
+    $filePath = realpath(__DIR__ . '/' . $relativePath);
+    $allowedPrefix = $baseDir ? $baseDir . DIRECTORY_SEPARATOR : '';
+
+    if ($baseDir && $filePath && strncmp($filePath, $allowedPrefix, strlen($allowedPrefix)) === 0 && is_file($filePath)) {
+        @unlink($filePath);
+    }
+}
+
+function cleanup_duplicate_documents(PDO $pdo, int $tripId): array
+{
+    if ($tripId <= 0) {
+        return ['type' => 'danger', 'message' => 'Choose a trip before cleaning uploaded documents.'];
+    }
+
+    $stmt = $pdo->prepare('SELECT * FROM day_documents WHERE trip_id=? ORDER BY day_id ASC, created_at ASC, id ASC');
+    $stmt->execute([$tripId]);
+    $documents = $stmt->fetchAll();
+
+    $seen = [];
+    $duplicates = [];
+    foreach ($documents as $document) {
+        $key = (int)$document['day_id'] . '|' . document_dedupe_key($document);
+        if (!isset($seen[$key])) {
+            $seen[$key] = (int)$document['id'];
+            continue;
+        }
+        $duplicates[] = $document;
+    }
+
+    if (!$duplicates) {
+        return ['type' => 'success', 'message' => 'No duplicate uploaded documents were found.'];
+    }
+
+    $deletedRows = 0;
+    $deletedFiles = 0;
+    foreach ($duplicates as $duplicate) {
+        $relativePath = (string)($duplicate['file_path'] ?? '');
+        $stmt = $pdo->prepare('DELETE FROM day_documents WHERE id=? AND trip_id=?');
+        $stmt->execute([(int)$duplicate['id'], $tripId]);
+        if ($stmt->rowCount() < 1) {
+            continue;
+        }
+
+        $deletedRows++;
+        $beforeExists = $relativePath !== '' && is_file(__DIR__ . '/' . $relativePath);
+        delete_uploaded_document_file_if_unused($pdo, $relativePath);
+        if ($beforeExists && !is_file(__DIR__ . '/' . $relativePath)) {
+            $deletedFiles++;
+        }
+    }
+
+    return [
+        'type' => 'success',
+        'message' => "Removed {$deletedRows} duplicate uploaded document entr" . ($deletedRows === 1 ? 'y' : 'ies') . " and {$deletedFiles} unused PDF file" . ($deletedFiles === 1 ? '' : 's') . '.',
+    ];
 }
 
 function add_day_link(PDO $pdo, int $tripId): void
@@ -956,11 +1031,16 @@ document.addEventListener('submit', event => {
     if (!(form instanceof HTMLFormElement)) return;
 
     const action = form.querySelector('input[name="action"]')?.value;
-    if (!['import_day_pdf', 'add_day_link'].includes(action)) return;
+    if (!['import_day_pdf', 'add_day_link', 'cleanup_duplicate_documents'].includes(action)) return;
     if (form.dataset.openaiSubmitting === '1') return;
 
     event.preventDefault();
-    window.showOpenAiThinking(action === 'import_day_pdf' ? 'Reading the document and dividing details by day...' : 'Reading the website and extracting useful day details...');
+    const messages = {
+        import_day_pdf: 'Reading the document and dividing details by day...',
+        add_day_link: 'Reading the website and extracting useful day details...',
+        cleanup_duplicate_documents: 'Checking uploaded documents and removing duplicates...'
+    };
+    window.showOpenAiThinking(messages[action] || 'Analysing your travel information...');
     form.dataset.openaiSubmitting = '1';
     form.querySelectorAll('button').forEach(button => button.disabled = true);
     requestAnimationFrame(() => window.setTimeout(() => form.submit(), 120));
@@ -973,6 +1053,11 @@ document.addEventListener('submit', event => {
             <?php if ($trip): ?>
                 <a class="btn btn-outline-primary" href="calendar.php?trip_id=<?= (int)$tripId ?>"><i class="ti ti-calendar-event me-1"></i>Calendar</a>
                 <a class="btn btn-outline-primary" href="itinerary-pdf.php?trip_id=<?= (int)$tripId ?>" target="_blank" rel="noopener"><i class="ti ti-file-type-pdf me-1"></i>Itinerary PDF</a>
+                <form method="post" class="m-0">
+                    <input type="hidden" name="action" value="cleanup_duplicate_documents">
+                    <input type="hidden" name="trip_id" value="<?= (int)$tripId ?>">
+                    <button class="btn btn-outline-warning"><i class="ti ti-copy-off me-1"></i>Analyse duplicates</button>
+                </form>
             <?php endif; ?>
             <form method="post" class="m-0">
                 <input type="hidden" name="action" value="git_pull">
