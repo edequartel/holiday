@@ -930,13 +930,13 @@ document.addEventListener('submit', event => {
 }, true);
 </script>
 <div class="page"><div class="page-wrapper">
-    <div class="page-header d-print-none"><div class="container-xl"><div class="row align-items-center">
-        <div class="col"><h2 class="page-title"><i class="ti ti-plane-departure me-2"></i>Holiday Planner</h2><div class="text-secondary">Trips · flights · itinerary · map · OpenAI POI suggestions</div></div>
-        <div class="col-auto d-flex gap-2">
+    <div class="page-header d-print-none"><div class="container-xl"><div class="row g-2 align-items-center">
+        <div class="col-12 col-md"><h2 class="page-title"><i class="ti ti-plane-departure me-2"></i>Holiday Planner</h2><div class="text-secondary">Trips · flights · itinerary · map · OpenAI POI suggestions</div></div>
+        <div class="col-12 col-md-auto d-flex flex-wrap gap-2 app-header-actions">
             <?php if ($trip): ?>
                 <a class="btn btn-outline-primary" href="itinerary-pdf.php?trip_id=<?= (int)$tripId ?>" target="_blank" rel="noopener"><i class="ti ti-file-type-pdf me-1"></i>Itinerary PDF</a>
             <?php endif; ?>
-            <form method="post">
+            <form method="post" class="m-0">
                 <input type="hidden" name="action" value="git_pull">
                 <input type="hidden" name="trip_id" value="<?= $tripId ?>">
                 <button class="btn btn-outline-secondary"><i class="ti ti-git-pull-request me-1"></i>Git pull</button>
@@ -957,7 +957,7 @@ document.addEventListener('submit', event => {
                 <div class="mt-2"><?= nl2br(h($documentImportResult['message'])) ?></div>
             </div></div>
         <?php endif; ?>
-        <div class="col-lg-3 no-print">
+        <div class="col-lg-3 no-print app-sidebar">
             <div class="card"><div class="card-header"><h3 class="card-title">Trips</h3></div><div class="list-group list-group-flush">
                 <?php foreach ($trips as $t): ?><a href="?trip_id=<?= (int)$t['id'] ?>" class="list-group-item <?= $tripId === (int)$t['id'] ? 'active' : '' ?>"><strong><?= h($t['title']) ?></strong><br><small><?= h($t['destination']) ?></small></a><?php endforeach; ?>
             </div></div>
@@ -995,9 +995,9 @@ document.addEventListener('submit', event => {
             <div class="empty"><div class="empty-icon"><i class="ti ti-map-2"></i></div><p class="empty-title">No trip yet</p><p class="empty-subtitle text-secondary">Create your first holiday plan.</p></div>
         <?php else: ?>
             <div class="card mb-3"><div class="card-body">
-                <div class="row align-items-start">
-                    <div class="col"><h2><?= h($trip['title']) ?></h2><div class="text-secondary"><?= h($trip['destination']) ?> · <?= h($trip['start_date']) ?> to <?= h($trip['end_date']) ?></div><p class="mt-2"><?= nl2br(h($trip['notes'])) ?></p></div>
-                    <div class="col-md-4"><div class="text-secondary mb-1">Packing progress</div><div class="progress progress-lg"><div class="progress-bar bg-success" style="width: <?= $packedPercent ?>%"><?= $packedPercent ?>%</div></div><div class="text-secondary mt-1"><?= $packedItems ?> / <?= $totalItems ?> packed</div></div>
+                <div class="row g-3 align-items-start">
+                    <div class="col-12 col-md"><h2 class="h2 mb-1"><?= h($trip['title']) ?></h2><div class="text-secondary"><?= h($trip['destination']) ?> · <?= h($trip['start_date']) ?> to <?= h($trip['end_date']) ?></div><p class="mt-2"><?= nl2br(h($trip['notes'])) ?></p></div>
+                    <div class="col-12 col-md-4"><div class="text-secondary mb-1">Packing progress</div><div class="progress progress-lg"><div class="progress-bar bg-success" style="width: <?= $packedPercent ?>%"><?= $packedPercent ?>%</div></div><div class="text-secondary mt-1"><?= $packedItems ?> / <?= $totalItems ?> packed</div></div>
                 </div>
                 <form method="post" class="row g-2 align-items-end no-print mt-3">
                     <input type="hidden" name="action" value="update_trip">
@@ -1006,7 +1006,7 @@ document.addEventListener('submit', event => {
                     <div class="col-md-3"><label class="form-label">Destination</label><input name="destination" class="form-control" value="<?= h($trip['destination']) ?>"></div>
                     <div class="col-md-2"><label class="form-label">Travel from</label><input name="start_date" type="date" class="form-control" value="<?= h($trip['start_date']) ?>"></div>
                     <div class="col-md-2"><label class="form-label">Travel to</label><input name="end_date" type="date" class="form-control" value="<?= h($trip['end_date']) ?>"></div>
-                    <div class="col-md-2"><button class="btn btn-outline-primary w-100"><i class="ti ti-device-floppy me-1"></i>Save trip</button></div>
+                    <div class="col-12 col-md-2"><button class="btn btn-outline-primary w-100"><i class="ti ti-device-floppy me-1"></i>Save trip</button></div>
                     <div class="col-12"><textarea name="notes" class="form-control" rows="2" placeholder="Trip notes"><?= h($trip['notes']) ?></textarea></div>
                 </form>
             </div></div>
@@ -1018,7 +1018,7 @@ document.addEventListener('submit', event => {
                     <input type="hidden" name="trip_id" value="<?= $tripId ?>">
                     <div class="col-md-5"><label class="form-label">Booking, hotel, ticket or activity PDF</label><input name="booking_pdf" type="file" accept="application/pdf,.pdf" class="form-control" required></div>
                     <div class="col-md-5"><label class="form-label">Extra details for OpenAI</label><input name="extra_details" class="form-control" placeholder="Room preferences, arrival time, meeting point"></div>
-                    <div class="col-md-2"><button class="btn btn-outline-primary w-100"><i class="ti ti-sparkles me-1"></i>Import</button></div>
+                    <div class="col-12 col-md-2"><button class="btn btn-outline-primary w-100"><i class="ti ti-sparkles me-1"></i>Import</button></div>
                     <div class="col-12 text-secondary small">OpenAI will find the date or dates in the document and divide the information over the right itinerary days.</div>
                 </form>
             </div>
@@ -1042,14 +1042,14 @@ document.addEventListener('submit', event => {
                         <div class="col-md-2"><input name="city" class="form-control" placeholder="City"></div>
                         <div class="col-md-2"><input name="latitude" class="form-control" required placeholder="Latitude"></div>
                         <div class="col-md-2"><input name="longitude" class="form-control" required placeholder="Longitude"></div>
-                        <div class="col-md-1"><button class="btn btn-primary w-100">Add</button></div>
+                        <div class="col-12 col-md-1"><button class="btn btn-primary w-100">Add</button></div>
                         <div class="col-md-6"><input name="address" class="form-control" placeholder="Address"></div>
                         <div class="col-md-4"><input name="notes" class="form-control" placeholder="Notes"></div>
                         <div class="col-md-2"><label class="form-check mt-2"><input name="show_on_map" class="form-check-input" type="checkbox" checked><span class="form-check-label">Show on map</span></label></div>
                     </form>
                     <?php if ($points): ?>
                         <div class="col-12 mt-3">
-                            <div class="d-flex justify-content-between align-items-center mb-2">
+                            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
                                 <h4 class="mb-0">All locations</h4>
                                 <span class="text-secondary"><?= count($points) ?> saved</span>
                             </div>
@@ -1068,7 +1068,7 @@ document.addEventListener('submit', event => {
                                                 <div class="text-secondary"><?= h($point['address'] ?: $point['city']) ?></div>
                                                 <?php if ($point['notes']): ?><div class="small mt-1"><?= h($point['notes']) ?></div><?php endif; ?>
                                             </div>
-                                            <div class="col-auto d-flex gap-2">
+                                            <div class="col-12 col-sm-auto d-flex flex-wrap gap-2 app-item-actions">
                                                 <form method="post" class="d-flex align-items-center">
                                                     <input type="hidden" name="action" value="toggle_point_map">
                                                     <input type="hidden" name="trip_id" value="<?= $tripId ?>">
@@ -1097,21 +1097,21 @@ document.addEventListener('submit', event => {
                     <div class="col-md-4"><label class="form-label">Destination</label><input id="aiDestination" class="form-control" value="<?= h($trip['destination']) ?>"></div>
                     <div class="col-md-5"><label class="form-label">Interests</label><input id="aiInterests" class="form-control" value="culture, food, nature, accessible travel, birdwatching"></div>
                     <div class="col-md-2"><label class="form-label">Days</label><input id="aiDays" type="number" class="form-control" value="<?= max(1, count($days)) ?>"></div>
-                    <div class="col-md-1"><button type="button" onclick="suggestPoi()" class="btn btn-primary w-100">Go</button></div>
+                    <div class="col-12 col-md-1"><button type="button" onclick="suggestPoi()" class="btn btn-primary w-100">Go</button></div>
                 </div>
                 <div id="aiResults" class="mt-3"></div>
             </div></div>
 
             <div class="card mb-3"><div class="card-header"><h3 class="card-title"><i class="ti ti-plane me-2"></i>Flights</h3></div><div class="table-responsive"><table class="table table-vcenter"><thead><tr><th>Date</th><th>Flight</th><th>Route</th><th>Time</th><th class="no-print"></th></tr></thead><tbody>
                 <?php foreach ($flights as $f): ?><tr><td><?= h($f['flight_date']) ?></td><td><strong><?= h($f['airline']) ?></strong><br><span class="text-secondary"><?= h($f['flight_number']) ?></span></td><td><?= h($f['departure_airport']) ?> → <?= h($f['arrival_airport']) ?></td><td><?= h($f['departure_time']) ?> - <?= h($f['arrival_time']) ?></td><td class="no-print"><form method="post"><input type="hidden" name="action" value="delete_flight"><input type="hidden" name="trip_id" value="<?= $tripId ?>"><input type="hidden" name="flight_id" value="<?= (int)$f['id'] ?>"><button class="btn btn-sm btn-outline-danger"><i class="ti ti-trash"></i></button></form></td></tr><?php endforeach; ?>
-            </tbody></table></div><form method="post" class="card-body no-print row g-2"><input type="hidden" name="action" value="add_flight"><input type="hidden" name="trip_id" value="<?= $tripId ?>"><div class="col-md-2"><input name="flight_date" type="date" class="form-control"></div><div class="col-md-2"><input name="airline" class="form-control" placeholder="Airline"></div><div class="col-md-2"><input name="flight_number" class="form-control" placeholder="Flight no."></div><div class="col-md-2"><input name="departure_airport" class="form-control" placeholder="From"></div><div class="col-md-2"><input name="arrival_airport" class="form-control" placeholder="To"></div><div class="col-md-1"><input name="departure_time" type="time" class="form-control"></div><div class="col-md-1"><input name="arrival_time" type="time" class="form-control"></div><div class="col-10"><input name="notes" class="form-control" placeholder="Notes"></div><div class="col-2"><button class="btn btn-primary w-100">Add flight</button></div></form></div>
+            </tbody></table></div><form method="post" class="card-body no-print row g-2"><input type="hidden" name="action" value="add_flight"><input type="hidden" name="trip_id" value="<?= $tripId ?>"><div class="col-md-2"><input name="flight_date" type="date" class="form-control"></div><div class="col-md-2"><input name="airline" class="form-control" placeholder="Airline"></div><div class="col-md-2"><input name="flight_number" class="form-control" placeholder="Flight no."></div><div class="col-md-2"><input name="departure_airport" class="form-control" placeholder="From"></div><div class="col-md-2"><input name="arrival_airport" class="form-control" placeholder="To"></div><div class="col-md-1"><input name="departure_time" type="time" class="form-control"></div><div class="col-md-1"><input name="arrival_time" type="time" class="form-control"></div><div class="col-12 col-md-10"><input name="notes" class="form-control" placeholder="Notes"></div><div class="col-12 col-md-2"><button class="btn btn-primary w-100">Add flight</button></div></form></div>
 
             <div class="card mb-3"><div class="card-header"><h3 class="card-title"><i class="ti ti-calendar-event me-2"></i>Itinerary</h3></div><div class="list-group list-group-flush">
-                <?php foreach ($days as $d): $hasDocuments = !empty($documentsByDay[(int)$d['id']]); ?><div id="day-<?= (int)$d['id'] ?>" class="list-group-item itinerary-day"><div class="row"><div class="col"><strong><?= h($d['day_date']) ?> · <?= h($d['title']) ?></strong><div class="text-secondary"><?= h($d['location']) ?></div><?php if (!$hasDocuments && trim((string)$d['details']) !== ''): ?><p class="mt-2"><?= nl2br(h($d['details'])) ?></p><?php endif; ?><span class="badge bg-blue-lt">Transport: <?= h($d['transport']) ?></span> <span class="badge bg-green-lt">Hotel: <?= h($d['hotel']) ?></span>
+                <?php foreach ($days as $d): $hasDocuments = !empty($documentsByDay[(int)$d['id']]); ?><div id="day-<?= (int)$d['id'] ?>" class="list-group-item itinerary-day"><div class="row g-2"><div class="col-12 col-md"><strong><?= h($d['day_date']) ?> · <?= h($d['title']) ?></strong><div class="text-secondary"><?= h($d['location']) ?></div><?php if (!$hasDocuments && trim((string)$d['details']) !== ''): ?><p class="mt-2"><?= nl2br(h($d['details'])) ?></p><?php endif; ?><span class="badge bg-blue-lt">Transport: <?= h($d['transport']) ?></span> <span class="badge bg-green-lt">Hotel: <?= h($d['hotel']) ?></span>
                     <?php if (!empty($documentsByDay[(int)$d['id']])): ?><div class="mt-3 no-print">
                         <?php foreach ($documentsByDay[(int)$d['id']] as $document): $bookingDetails = decoded_booking_details($document); ?>
                             <div class="border rounded p-3 mb-2">
-                                <div class="d-flex justify-content-between gap-2 align-items-center mb-2">
+                                <div class="d-flex flex-wrap justify-content-between gap-2 align-items-center mb-2">
                                     <strong><i class="ti ti-file-type-pdf me-1"></i><?= h($document['original_name']) ?></strong>
                                     <a class="btn btn-sm btn-outline-secondary" href="document.php?id=<?= (int)$document['id'] ?>" target="_blank" rel="noopener">Open</a>
                                 </div>
@@ -1170,13 +1170,13 @@ document.addEventListener('submit', event => {
                         <div class="text-secondary small text-uppercase mb-2">Websites</div>
                         <?php foreach ($linksByDay[(int)$d['id']] as $link): $linkDetails = decoded_link_details($link); ?>
                             <div class="border rounded p-3 mb-2">
-                                <div class="d-flex justify-content-between gap-2 align-items-center">
+                                <div class="d-flex flex-wrap justify-content-between gap-2 align-items-center">
                                     <div>
                                         <strong><i class="ti ti-world me-1"></i><?= h($link['title']) ?></strong>
                                         <div class="text-secondary small"><?= h($link['url']) ?></div>
                                         <?php if ($link['notes']): ?><div class="mt-1"><?= nl2br(h($link['notes'])) ?></div><?php endif; ?>
                                     </div>
-                                    <div class="d-flex gap-2">
+                                    <div class="d-flex flex-wrap gap-2 app-item-actions">
                                         <a class="btn btn-sm btn-outline-secondary" href="<?= h($link['url']) ?>" target="_blank" rel="noopener">Open</a>
                                         <form method="post">
                                             <input type="hidden" name="action" value="delete_link">
@@ -1228,7 +1228,7 @@ document.addEventListener('submit', event => {
                         <div class="col-md-3"><label class="form-label">Notes</label><input name="notes" class="form-control" placeholder="Why this is useful"></div>
                         <div class="col-md-2"><button class="btn btn-outline-primary w-100"><i class="ti ti-link-plus me-1"></i>Add link</button></div>
                     </form>
-                </div><div class="col-auto no-print"><form method="post"><input type="hidden" name="action" value="delete_day"><input type="hidden" name="trip_id" value="<?= $tripId ?>"><input type="hidden" name="day_id" value="<?= (int)$d['id'] ?>"><button class="btn btn-sm btn-outline-danger"><i class="ti ti-trash"></i></button></form></div></div></div><?php endforeach; ?>
+                </div><div class="col-12 col-md-auto no-print"><form method="post"><input type="hidden" name="action" value="delete_day"><input type="hidden" name="trip_id" value="<?= $tripId ?>"><input type="hidden" name="day_id" value="<?= (int)$d['id'] ?>"><button class="btn btn-sm btn-outline-danger app-delete-day"><i class="ti ti-trash"></i></button></form></div></div></div><?php endforeach; ?>
             </div><div class="card-body no-print">
                 <form method="post" class="row g-2"><input type="hidden" name="action" value="add_day"><input type="hidden" name="trip_id" value="<?= $tripId ?>"><div class="col-md-2"><input name="day_date" type="date" class="form-control" required></div><div class="col-md-3"><input name="location" class="form-control" placeholder="Location"></div><div class="col-md-4"><input name="title" class="form-control" placeholder="Day title"></div><div class="col-md-3"><input name="hotel" class="form-control" placeholder="Hotel"></div><div class="col-md-4"><input name="transport" class="form-control" placeholder="Transport"></div><div class="col-md-8"><textarea name="details" class="form-control" rows="2" placeholder="Plans, sights, restaurants, notes"></textarea></div><div class="col-12"><button class="btn btn-primary">Add day</button></div></form>
                 <?php if ($days): ?>
@@ -1244,14 +1244,14 @@ document.addEventListener('submit', event => {
                         <div class="col-md-3"><label class="form-label">Website title</label><input name="title" class="form-control" placeholder="Official info"></div>
                         <div class="col-md-3"><label class="form-label">Website URL</label><input name="url" class="form-control" required placeholder="https://..."></div>
                         <div class="col-md-2"><label class="form-label">Notes</label><input name="notes" class="form-control" placeholder="Opening times, tips"></div>
-                        <div class="col-md-1"><button class="btn btn-outline-primary w-100"><i class="ti ti-link-plus"></i></button></div>
+                        <div class="col-12 col-md-1"><button class="btn btn-outline-primary w-100"><i class="ti ti-link-plus"></i></button></div>
                     </form>
                 <?php endif; ?>
             </div></div>
 
             <div class="card"><div class="card-header"><h3 class="card-title"><i class="ti ti-backpack me-2"></i>Packing checklist</h3></div><div class="list-group list-group-flush">
-                <?php foreach ($items as $i): ?><div class="list-group-item"><div class="row align-items-center"><div class="col-auto no-print"><form method="post"><input type="hidden" name="action" value="toggle_packed"><input type="hidden" name="trip_id" value="<?= $tripId ?>"><input type="hidden" name="item_id" value="<?= (int)$i['id'] ?>"><button class="btn btn-sm <?= $i['packed'] ? 'btn-success' : 'btn-outline-secondary' ?>"><i class="ti ti-check"></i></button></form></div><div class="col"><span class="<?= $i['packed'] ? 'packed' : '' ?>"><strong><?= h($i['category']) ?>:</strong> <?= h($i['item']) ?></span></div><div class="col-auto text-secondary"><?= h($i['quantity']) ?></div><div class="col-auto no-print"><form method="post"><input type="hidden" name="action" value="delete_item"><input type="hidden" name="trip_id" value="<?= $tripId ?>"><input type="hidden" name="item_id" value="<?= (int)$i['id'] ?>"><button class="btn btn-sm btn-outline-danger"><i class="ti ti-trash"></i></button></form></div></div></div><?php endforeach; ?>
-            </div><form method="post" class="card-body no-print row g-2"><input type="hidden" name="action" value="add_item"><input type="hidden" name="trip_id" value="<?= $tripId ?>"><div class="col-md-3"><input name="category" class="form-control" placeholder="Category"></div><div class="col-md-6"><input name="item" class="form-control" placeholder="Item" required></div><div class="col-md-2"><input name="quantity" class="form-control" placeholder="Quantity"></div><div class="col-md-1"><button class="btn btn-primary w-100">Add</button></div></form></div>
+                <?php foreach ($items as $i): ?><div class="list-group-item"><div class="row g-2 align-items-center"><div class="col-auto no-print"><form method="post"><input type="hidden" name="action" value="toggle_packed"><input type="hidden" name="trip_id" value="<?= $tripId ?>"><input type="hidden" name="item_id" value="<?= (int)$i['id'] ?>"><button class="btn btn-sm <?= $i['packed'] ? 'btn-success' : 'btn-outline-secondary' ?>"><i class="ti ti-check"></i></button></form></div><div class="col"><span class="<?= $i['packed'] ? 'packed' : '' ?>"><strong><?= h($i['category']) ?>:</strong> <?= h($i['item']) ?></span></div><div class="col-auto text-secondary"><?= h($i['quantity']) ?></div><div class="col-auto no-print"><form method="post"><input type="hidden" name="action" value="delete_item"><input type="hidden" name="trip_id" value="<?= $tripId ?>"><input type="hidden" name="item_id" value="<?= (int)$i['id'] ?>"><button class="btn btn-sm btn-outline-danger"><i class="ti ti-trash"></i></button></form></div></div></div><?php endforeach; ?>
+            </div><form method="post" class="card-body no-print row g-2"><input type="hidden" name="action" value="add_item"><input type="hidden" name="trip_id" value="<?= $tripId ?>"><div class="col-md-3"><input name="category" class="form-control" placeholder="Category"></div><div class="col-md-6"><input name="item" class="form-control" placeholder="Item" required></div><div class="col-md-2"><input name="quantity" class="form-control" placeholder="Quantity"></div><div class="col-12 col-md-1"><button class="btn btn-primary w-100">Add</button></div></form></div>
         <?php endif; ?>
         </div>
     </div></div></div>

@@ -2,6 +2,18 @@
     height: 520px;
     border-radius: 0 0 0.5rem 0.5rem;
 }
+.app-header-actions .btn,
+.app-header-actions form {
+    max-width: 100%;
+}
+.app-item-actions {
+    justify-content: flex-start;
+}
+.itinerary-day,
+.list-group-item,
+.card {
+    overflow-wrap: anywhere;
+}
 .packed {
     text-decoration: line-through;
     color: #6c757d;
@@ -54,4 +66,36 @@
 @media print {
     .no-print { display: none !important; }
     #map { height: 360px; }
+}
+@media (max-width: 991.98px) {
+    .app-sidebar {
+        order: 2;
+    }
+    .app-sidebar .list-group {
+        max-height: 260px;
+        overflow: auto;
+    }
+}
+@media (max-width: 575.98px) {
+    #map {
+        height: 360px;
+    }
+    .page-header .page-title {
+        font-size: 1.25rem;
+    }
+    .app-header-actions,
+    .app-header-actions form,
+    .app-header-actions .btn {
+        width: 100%;
+    }
+    .app-item-actions,
+    .app-item-actions form,
+    .app-item-actions .btn,
+    .app-delete-day {
+        width: 100%;
+    }
+    .openai-thinking-box {
+        align-items: flex-start;
+        padding: 1rem;
+    }
 }
