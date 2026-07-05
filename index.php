@@ -248,11 +248,12 @@ function import_day_pdf(PDO $pdo, int $tripId): array
             $dayDate,
             $itinerary['location'] ?? '',
             $itinerary['title'] ?? 'Booking details',
-            format_imported_itinerary_details($itinerary),
+            '',
             $itinerary['transport'] ?? '',
             $itinerary['hotel'] ?? '',
         ]);
         $dayId = (int)$pdo->lastInsertId();
+        save_imported_map_point($pdo, $tripId, $itinerary, $dayDate);
 
         $stmt = $pdo->prepare('INSERT INTO day_documents (trip_id, day_id, original_name, stored_name, file_path, mime_type, file_size, notes, extracted_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
         $stmt->execute([
@@ -296,8 +297,8 @@ function extract_itinerary_from_pdf(string $filePath, string $filename, array $t
         "Selected day date: {$dayDate}\n" .
         "Extra details from user: {$extraDetails}\n\n" .
         "Return strict JSON only, no markdown. Format:\n" .
-        "{\"title\":\"short day title\",\"location\":\"city or place\",\"hotel\":\"hotel or accommodation name if present\",\"transport\":\"transport summary if present\",\"details\":\"clear human summary\",\"arrival_date\":\"YYYY-MM-DD or original text\",\"departure_date\":\"YYYY-MM-DD or original text\",\"nights\":\"number or text\",\"check_in\":\"time/window and instructions\",\"check_out\":\"time/window and instructions\",\"breakfast\":\"included/not included/time/location/details\",\"address\":\"full address\",\"confirmation\":\"booking reference/PIN/reservation number\",\"guest_name\":\"name if present\",\"room\":\"room type or unit\",\"payment\":\"paid/due/taxes/deposit/currency details\",\"cancellation\":\"deadline or policy summary\",\"contact\":\"phone/email/reception/contact details\",\"parking\":\"parking instructions/cost if present\",\"important_notes\":[\"wifi, access code, luggage, accessibility, house rules, documents to bring, local taxes, or other useful details\"]}\n" .
-        "Use the selected day date for the created itinerary day, but extract all stay dates from the PDF. Do not omit breakfast, check-in, check-out, address, confirmation numbers, payment/tax details, cancellation policy, contact details, parking, or access instructions when present. If a field is missing, use an empty string or empty array.";
+        "{\"title\":\"short day title\",\"location\":\"city or place\",\"hotel\":\"hotel or accommodation name if present\",\"transport\":\"transport summary if present\",\"details\":\"clear human summary\",\"arrival_date\":\"YYYY-MM-DD or original text\",\"departure_date\":\"YYYY-MM-DD or original text\",\"nights\":\"number or text\",\"check_in\":\"time/window and instructions\",\"check_out\":\"time/window and instructions\",\"breakfast\":\"included/not included/time/location/details\",\"address\":\"full address\",\"latitude\":\"decimal latitude for the hotel/location\",\"longitude\":\"decimal longitude for the hotel/location\",\"confirmation\":\"booking reference/PIN/reservation number\",\"guest_name\":\"name if present\",\"room\":\"room type or unit\",\"payment\":\"paid/due/taxes/deposit/currency details\",\"cancellation\":\"deadline or policy summary\",\"contact\":\"phone/email/reception/contact details\",\"parking\":\"parking instructions/cost if present\",\"important_notes\":[\"wifi, access code, luggage, accessibility, house rules, documents to bring, local taxes, or other useful details\"]}\n" .
+        "Use the selected day date for the created itinerary day, but extract all stay dates from the PDF. Add real approximate latitude and longitude for the hotel, accommodation, station, airport, or main booked location when you can identify it. Do not omit breakfast, check-in, check-out, address, confirmation numbers, payment/tax details, cancellation policy, contact details, parking, or access instructions when present. If a field is missing, use an empty string or empty array.";
 
     $payload = [
         'model' => $model,
@@ -356,6 +357,37 @@ function extract_itinerary_from_pdf(string $filePath, string $filename, array $t
     }
 
     return $decoded;
+}
+
+function save_imported_map_point(PDO $pdo, int $tripId, array $itinerary, string $dayDate): void
+{
+    $latitude = filter_var($itinerary['latitude'] ?? null, FILTER_VALIDATE_FLOAT);
+    $longitude = filter_var($itinerary['longitude'] ?? null, FILTER_VALIDATE_FLOAT);
+    if ($latitude === false || $longitude === false) {
+        return;
+    }
+
+    if ($latitude < -90 || $latitude > 90 || $longitude < -180 || $longitude > 180) {
+        return;
+    }
+
+    $name = trim((string)($itinerary['hotel'] ?? '')) ?: trim((string)($itinerary['title'] ?? 'Booking location'));
+    $address = trim((string)($itinerary['address'] ?? ''));
+    $city = trim((string)($itinerary['location'] ?? ''));
+    $notes = trim(implode(' ', array_filter([
+        $dayDate ? 'Imported from booking PDF for ' . $dayDate . '.' : '',
+        trim((string)($itinerary['check_in'] ?? '')) ? 'Check-in: ' . trim((string)$itinerary['check_in']) . '.' : '',
+        trim((string)($itinerary['confirmation'] ?? '')) ? 'Confirmation: ' . trim((string)$itinerary['confirmation']) . '.' : '',
+    ])));
+
+    $stmt = $pdo->prepare('SELECT id FROM map_points WHERE trip_id=? AND name=? AND ABS(latitude - ?) < 0.0001 AND ABS(longitude - ?) < 0.0001 LIMIT 1');
+    $stmt->execute([$tripId, $name, $latitude, $longitude]);
+    if ($stmt->fetch()) {
+        return;
+    }
+
+    $stmt = $pdo->prepare('INSERT INTO map_points (trip_id, point_type, name, address, city, latitude, longitude, notes, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    $stmt->execute([$tripId, 'hotel', $name, $address, $city, $latitude, $longitude, $notes, 'openai-pdf']);
 }
 
 function response_output_text(array $data): string
@@ -564,6 +596,40 @@ function has_group_values(array $fields): bool
                         <div class="col-md-6"><input name="address" class="form-control" placeholder="Address"></div>
                         <div class="col-md-6"><input name="notes" class="form-control" placeholder="Notes"></div>
                     </form>
+                    <?php if ($points): ?>
+                        <div class="col-12 mt-3">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <h4 class="mb-0">All locations</h4>
+                                <span class="text-secondary"><?= count($points) ?> saved</span>
+                            </div>
+                            <div class="list-group">
+                                <?php foreach ($points as $point): ?>
+                                    <div class="list-group-item">
+                                        <div class="row align-items-center g-2">
+                                            <div class="col">
+                                                <div class="d-flex flex-wrap align-items-center gap-2">
+                                                    <strong><?= h($point['name']) ?></strong>
+                                                    <span class="badge bg-blue-lt"><?= h($point['point_type']) ?></span>
+                                                    <?php if ($point['source']): ?><span class="badge bg-green-lt"><?= h($point['source']) ?></span><?php endif; ?>
+                                                </div>
+                                                <div class="text-secondary"><?= h($point['address'] ?: $point['city']) ?></div>
+                                                <?php if ($point['notes']): ?><div class="small mt-1"><?= h($point['notes']) ?></div><?php endif; ?>
+                                            </div>
+                                            <div class="col-auto d-flex gap-2">
+                                                <button type="button" class="btn btn-sm btn-outline-primary" onclick="focusLocation(<?= (int)$point['id'] ?>)"><i class="ti ti-map-pin me-1"></i>View</button>
+                                                <form method="post">
+                                                    <input type="hidden" name="action" value="delete_point">
+                                                    <input type="hidden" name="trip_id" value="<?= $tripId ?>">
+                                                    <input type="hidden" name="point_id" value="<?= (int)$point['id'] ?>">
+                                                    <button class="btn btn-sm btn-outline-danger"><i class="ti ti-trash"></i></button>
+                                                </form>
+                                            </div>
+                                        </div>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                    <?php endif; ?>
                 </div></div>
             </div>
 
@@ -582,7 +648,7 @@ function has_group_values(array $fields): bool
             </tbody></table></div><form method="post" class="card-body no-print row g-2"><input type="hidden" name="action" value="add_flight"><input type="hidden" name="trip_id" value="<?= $tripId ?>"><div class="col-md-2"><input name="flight_date" type="date" class="form-control"></div><div class="col-md-2"><input name="airline" class="form-control" placeholder="Airline"></div><div class="col-md-2"><input name="flight_number" class="form-control" placeholder="Flight no."></div><div class="col-md-2"><input name="departure_airport" class="form-control" placeholder="From"></div><div class="col-md-2"><input name="arrival_airport" class="form-control" placeholder="To"></div><div class="col-md-1"><input name="departure_time" type="time" class="form-control"></div><div class="col-md-1"><input name="arrival_time" type="time" class="form-control"></div><div class="col-10"><input name="notes" class="form-control" placeholder="Notes"></div><div class="col-2"><button class="btn btn-primary w-100">Add flight</button></div></form></div>
 
             <div class="card mb-3"><div class="card-header"><h3 class="card-title"><i class="ti ti-calendar-event me-2"></i>Itinerary</h3></div><div class="list-group list-group-flush">
-                <?php foreach ($days as $d): ?><div class="list-group-item"><div class="row"><div class="col"><strong><?= h($d['day_date']) ?> · <?= h($d['title']) ?></strong><div class="text-secondary"><?= h($d['location']) ?></div><p class="mt-2"><?= nl2br(h($d['details'])) ?></p><span class="badge bg-blue-lt">Transport: <?= h($d['transport']) ?></span> <span class="badge bg-green-lt">Hotel: <?= h($d['hotel']) ?></span>
+                <?php foreach ($days as $d): $hasDocuments = !empty($documentsByDay[(int)$d['id']]); ?><div class="list-group-item"><div class="row"><div class="col"><strong><?= h($d['day_date']) ?> · <?= h($d['title']) ?></strong><div class="text-secondary"><?= h($d['location']) ?></div><?php if (!$hasDocuments && trim((string)$d['details']) !== ''): ?><p class="mt-2"><?= nl2br(h($d['details'])) ?></p><?php endif; ?><span class="badge bg-blue-lt">Transport: <?= h($d['transport']) ?></span> <span class="badge bg-green-lt">Hotel: <?= h($d['hotel']) ?></span>
                     <?php if (!empty($documentsByDay[(int)$d['id']])): ?><div class="mt-3 no-print">
                         <?php foreach ($documentsByDay[(int)$d['id']] as $document): $bookingDetails = decoded_booking_details($document); ?>
                             <div class="border rounded p-3 mb-2">
@@ -658,12 +724,22 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r
 }).addTo(map);
 const iconMap = {hotel:'🏨', parking:'🅿️', poi:'📍', restaurant:'🍜', transport:'🚆', other:'⭐'};
 const markers = [];
+const markersById = {};
 mapPoints.forEach(p => {
     const marker = L.marker([parseFloat(p.latitude), parseFloat(p.longitude)]).addTo(map);
-    marker.bindPopup(`<div class="map-popup-title">${iconMap[p.point_type] || '📍'} ${escapeHtml(p.name)}</div><div>${escapeHtml(p.city || '')}</div><div class="text-secondary">${escapeHtml(p.notes || '')}</div>`);
+    marker.bindPopup(`<div class="map-popup-title">${iconMap[p.point_type] || '📍'} ${escapeHtml(p.name)}</div><div>${escapeHtml(p.address || p.city || '')}</div><div class="text-secondary">${escapeHtml(p.notes || '')}</div>`);
     markers.push(marker);
+    markersById[p.id] = marker;
 });
 if (markers.length > 1) map.fitBounds(L.featureGroup(markers).getBounds().pad(0.2));
+
+function focusLocation(pointId) {
+    const marker = markersById[pointId];
+    if (!marker) return;
+    map.setView(marker.getLatLng(), 16);
+    marker.openPopup();
+    document.getElementById('map').scrollIntoView({behavior: 'smooth', block: 'center'});
+}
 
 function escapeHtml(str) {
     return String(str).replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
