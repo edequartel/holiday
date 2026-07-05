@@ -421,9 +421,6 @@ function import_day_pdf(PDO $pdo, int $tripId): array
     if ($dayDate === '' && $existingDay) {
         $dayDate = (string)$existingDay['day_date'];
     }
-    if ($dayDate === '') {
-        return ['type' => 'danger', 'message' => 'Choose the day date for this document.'];
-    }
 
     $upload = $_FILES['booking_pdf'] ?? null;
     if (!$upload || (int)$upload['error'] !== UPLOAD_ERR_OK) {
@@ -457,7 +454,8 @@ function import_day_pdf(PDO $pdo, int $tripId): array
     $extraDetails = trim($_POST['extra_details'] ?? '');
     try {
         $analysis = extract_itinerary_from_pdf($storedPath, $originalName, $trip, $dayDate, $extraDetails, $existingDay);
-        $importedDays = normalize_imported_days($analysis, $dayDate, $existingDay);
+        $fallbackDate = $dayDate ?: (string)($trip['start_date'] ?? '') ?: date('Y-m-d');
+        $importedDays = normalize_imported_days($analysis, $fallbackDate, $existingDay);
         $attachedCount = 0;
 
         foreach ($importedDays as $itinerary) {
@@ -596,7 +594,7 @@ function extract_itinerary_from_pdf(string $filePath, string $filename, array $t
         "Trip: " . ($trip['title'] ?? '') . "\n" .
         "Destination: " . ($trip['destination'] ?? '') . "\n" .
         "Trip travel dates: " . ($trip['start_date'] ?? '') . " to " . ($trip['end_date'] ?? '') . "\n" .
-        "Selected day date: {$dayDate}\n" .
+        "Selected day date: " . ($dayDate !== '' ? $dayDate : 'none supplied; infer the date or dates from the document') . "\n" .
         ($existingDay ? "Existing itinerary day title: " . ($existingDay['title'] ?? '') . "\nExisting location: " . ($existingDay['location'] ?? '') . "\nExisting hotel: " . ($existingDay['hotel'] ?? '') . "\n" : '') .
         "Extra details from user: {$extraDetails}\n\n" .
         "Return strict JSON only, no markdown. Format:\n" .
@@ -943,7 +941,6 @@ document.addEventListener('submit', event => {
                 <input type="hidden" name="trip_id" value="<?= $tripId ?>">
                 <button class="btn btn-outline-secondary"><i class="ti ti-git-pull-request me-1"></i>Git pull</button>
             </form>
-            <button onclick="window.print()" class="btn btn-outline-primary"><i class="ti ti-printer me-1"></i>Print</button>
         </div>
     </div></div></div>
 
@@ -1013,6 +1010,18 @@ document.addEventListener('submit', event => {
                     <div class="col-12"><textarea name="notes" class="form-control" rows="2" placeholder="Trip notes"><?= h($trip['notes']) ?></textarea></div>
                 </form>
             </div></div>
+
+            <div class="card mb-3 no-print">
+                <div class="card-header"><h3 class="card-title"><i class="ti ti-file-import me-2"></i>Import travel document</h3></div>
+                <form method="post" enctype="multipart/form-data" class="card-body row g-2 align-items-end">
+                    <input type="hidden" name="action" value="import_day_pdf">
+                    <input type="hidden" name="trip_id" value="<?= $tripId ?>">
+                    <div class="col-md-5"><label class="form-label">Booking, hotel, ticket or activity PDF</label><input name="booking_pdf" type="file" accept="application/pdf,.pdf" class="form-control" required></div>
+                    <div class="col-md-5"><label class="form-label">Extra details for OpenAI</label><input name="extra_details" class="form-control" placeholder="Room preferences, arrival time, meeting point"></div>
+                    <div class="col-md-2"><button class="btn btn-outline-primary w-100"><i class="ti ti-sparkles me-1"></i>Import</button></div>
+                    <div class="col-12 text-secondary small">OpenAI will find the date or dates in the document and divide the information over the right itinerary days.</div>
+                </form>
+            </div>
 
             <div class="card mb-3"><div class="card-header"><h3 class="card-title"><i class="ti ti-map-pin me-2"></i>Map: hotels, parking and POI</h3></div>
                 <div class="px-3 py-2 border-bottom bg-light text-secondary small">
@@ -1222,15 +1231,6 @@ document.addEventListener('submit', event => {
                 </div><div class="col-auto no-print"><form method="post"><input type="hidden" name="action" value="delete_day"><input type="hidden" name="trip_id" value="<?= $tripId ?>"><input type="hidden" name="day_id" value="<?= (int)$d['id'] ?>"><button class="btn btn-sm btn-outline-danger"><i class="ti ti-trash"></i></button></form></div></div></div><?php endforeach; ?>
             </div><div class="card-body no-print">
                 <form method="post" class="row g-2"><input type="hidden" name="action" value="add_day"><input type="hidden" name="trip_id" value="<?= $tripId ?>"><div class="col-md-2"><input name="day_date" type="date" class="form-control" required></div><div class="col-md-3"><input name="location" class="form-control" placeholder="Location"></div><div class="col-md-4"><input name="title" class="form-control" placeholder="Day title"></div><div class="col-md-3"><input name="hotel" class="form-control" placeholder="Hotel"></div><div class="col-md-4"><input name="transport" class="form-control" placeholder="Transport"></div><div class="col-md-8"><textarea name="details" class="form-control" rows="2" placeholder="Plans, sights, restaurants, notes"></textarea></div><div class="col-12"><button class="btn btn-primary">Add day</button></div></form>
-                <hr>
-                <form method="post" enctype="multipart/form-data" class="row g-2 align-items-end">
-                    <input type="hidden" name="action" value="import_day_pdf">
-                    <input type="hidden" name="trip_id" value="<?= $tripId ?>">
-                    <div class="col-md-2"><label class="form-label">Day date</label><input name="day_date" type="date" class="form-control" required></div>
-                    <div class="col-md-4"><label class="form-label">Booking PDF</label><input name="booking_pdf" type="file" accept="application/pdf,.pdf" class="form-control" required></div>
-                    <div class="col-md-4"><label class="form-label">Extra details for OpenAI</label><input name="extra_details" class="form-control" placeholder="Room preferences, arrival time, meeting point"></div>
-                    <div class="col-md-2"><button class="btn btn-outline-primary w-100"><i class="ti ti-sparkles me-1"></i>Import PDF</button></div>
-                </form>
                 <?php if ($days): ?>
                     <hr>
                     <form method="post" class="row g-2 align-items-end">

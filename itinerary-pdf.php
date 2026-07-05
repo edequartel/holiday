@@ -79,24 +79,31 @@ function render_itinerary_pdf_html(array $trip, array $days, array $flights, arr
 <head>
     <meta charset="utf-8">
     <style>
-        @page { margin: 28px 34px; }
-        body { color: #1f2937; font-family: DejaVu Sans, sans-serif; font-size: 11px; line-height: 1.45; margin: 0; }
+        @page { margin: 32px 36px; }
+        body { background: #ffffff; color: #1f2937; font-family: DejaVu Sans, sans-serif; font-size: 11px; line-height: 1.45; margin: 0; }
         h1, h2, h3 { color: #111827; margin: 0; }
         h1 { font-size: 28px; line-height: 1.1; }
         h2 { font-size: 18px; margin-bottom: 10px; }
         h3 { font-size: 13px; margin-bottom: 6px; }
-        .cover { background: #f3f7fb; border-left: 8px solid #2563eb; border-radius: 10px; padding: 22px 24px; }
+        .cover { background: #f3f7fb; border: 1px solid #c8d7ee; border-left: 8px solid #2563eb; border-radius: 10px; padding: 22px 24px; page-break-inside: avoid; }
         .subtitle { color: #4b5563; font-size: 13px; margin-top: 8px; }
         .trip-notes { margin-top: 14px; white-space: pre-line; }
-        .meta { margin-top: 18px; width: 100%; }
-        .meta td { background: #fff; border: 1px solid #dbe3ef; border-radius: 6px; padding: 9px; vertical-align: top; width: 33.33%; }
+        .meta { border-collapse: separate; border-spacing: 8px 0; margin-left: -8px; margin-top: 18px; width: 100%; }
+        .meta td { background: #fff; border: 1px solid #cbd8ea; border-radius: 6px; padding: 9px; vertical-align: top; width: 33.33%; }
         .label { color: #64748b; display: block; font-size: 8px; font-weight: bold; letter-spacing: .08em; text-transform: uppercase; }
         .value { display: block; font-size: 11px; margin-top: 3px; }
         .section { margin-top: 22px; }
+        .section-title { border-bottom: 2px solid #2563eb; color: #1e3a8a; margin-bottom: 12px; padding-bottom: 6px; page-break-after: avoid; page-break-inside: avoid; }
+        .flight-wrap { border: 1px solid #cbd8ea; border-radius: 8px; page-break-inside: avoid; }
         .flight-table { border-collapse: collapse; width: 100%; }
-        .flight-table th { background: #e8f0fb; color: #334155; font-size: 9px; letter-spacing: .06em; padding: 7px; text-align: left; text-transform: uppercase; }
-        .flight-table td { border-bottom: 1px solid #e5e7eb; padding: 7px; vertical-align: top; }
-        .day { border-top: 3px solid #2563eb; page-break-inside: avoid; padding-top: 12px; margin-top: 22px; }
+        .flight-table tr { page-break-inside: avoid; }
+        .flight-table th { background: #e8f0fb; border-bottom: 1px solid #cbd8ea; color: #334155; font-size: 9px; letter-spacing: .06em; padding: 8px; text-align: left; text-transform: uppercase; }
+        .flight-table td { border-bottom: 1px solid #e5eaf2; padding: 8px; vertical-align: top; }
+        .flight-table tr:last-child td { border-bottom: 0; }
+        .day { border: 1px solid #cbd8ea; border-radius: 10px; margin-top: 18px; page-break-before: always; page-break-inside: avoid; }
+        .day.first-day { page-break-before: auto; }
+        .day-header { background: #f3f7fb; border-bottom: 1px solid #cbd8ea; border-left: 6px solid #2563eb; padding: 12px 14px; page-break-after: avoid; page-break-inside: avoid; }
+        .day-body { padding: 12px 14px 14px; }
         .day-title { display: table; width: 100%; }
         .day-date { color: #2563eb; display: table-cell; font-size: 12px; font-weight: bold; white-space: nowrap; width: 105px; }
         .day-main { display: table-cell; }
@@ -104,12 +111,13 @@ function render_itinerary_pdf_html(array $trip, array $days, array $flights, arr
         .summary { color: #374151; margin-top: 9px; white-space: pre-line; }
         .grid { display: table; margin-top: 10px; width: 100%; }
         .col { display: table-cell; padding-right: 10px; vertical-align: top; width: 50%; }
-        .box { background: #fbfdff; border: 1px solid #dbe3ef; border-radius: 8px; margin-top: 10px; padding: 10px; }
+        .box { background: #fbfdff; border: 1px solid #d3deed; border-radius: 8px; margin-top: 10px; padding: 10px 11px; page-break-inside: avoid; }
         .box h3 { color: #1d4ed8; }
         .field { margin: 0 0 5px; }
         .field strong { color: #334155; display: inline-block; min-width: 86px; }
         .muted { color: #64748b; }
-        .list { margin: 5px 0 0 16px; padding: 0; }
+        .list { margin: 5px 0 0 16px; padding: 0; page-break-inside: avoid; }
+        .list li { margin-bottom: 3px; }
         .doc-title { font-weight: bold; }
         .footer { border-top: 1px solid #e5e7eb; color: #64748b; font-size: 9px; margin-top: 24px; padding-top: 8px; text-align: center; }
         a { color: #1d4ed8; text-decoration: none; }
@@ -131,43 +139,48 @@ function render_itinerary_pdf_html(array $trip, array $days, array $flights, arr
 
     <?php if ($flights): ?>
         <div class="section">
-            <h2>Flights</h2>
-            <table class="flight-table">
-                <thead><tr><th>Date</th><th>Flight</th><th>Route</th><th>Time</th><th>Notes</th></tr></thead>
-                <tbody>
-                <?php foreach ($flights as $flight): ?>
-                    <tr>
-                        <td><?= h($flight['flight_date']) ?></td>
-                        <td><strong><?= h($flight['airline']) ?></strong><br><span class="muted"><?= h($flight['flight_number']) ?></span></td>
-                        <td><?= h($flight['departure_airport']) ?> to <?= h($flight['arrival_airport']) ?></td>
-                        <td><?= h(trim(($flight['departure_time'] ?? '') . ' - ' . ($flight['arrival_time'] ?? ''), ' -')) ?></td>
-                        <td><?= h($flight['notes']) ?></td>
-                    </tr>
-                <?php endforeach; ?>
-                </tbody>
-            </table>
+            <h2 class="section-title">Flights</h2>
+            <div class="flight-wrap">
+                <table class="flight-table">
+                    <thead><tr><th>Date</th><th>Flight</th><th>Route</th><th>Time</th><th>Notes</th></tr></thead>
+                    <tbody>
+                    <?php foreach ($flights as $flight): ?>
+                        <tr>
+                            <td><?= h($flight['flight_date']) ?></td>
+                            <td><strong><?= h($flight['airline']) ?></strong><br><span class="muted"><?= h($flight['flight_number']) ?></span></td>
+                            <td><?= h($flight['departure_airport']) ?> to <?= h($flight['arrival_airport']) ?></td>
+                            <td><?= h(trim(($flight['departure_time'] ?? '') . ' - ' . ($flight['arrival_time'] ?? ''), ' -')) ?></td>
+                            <td><?= h($flight['notes']) ?></td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
         </div>
     <?php endif; ?>
 
     <div class="section">
-        <h2>Day By Day</h2>
+        <h2 class="section-title">Day By Day</h2>
         <?php foreach ($days as $index => $day): ?>
             <?php
             $dayId = (int)$day['id'];
             $documents = $documentsByDay[$dayId] ?? [];
             $links = $linksByDay[$dayId] ?? [];
             ?>
-            <div class="day">
-                <div class="day-title">
-                    <div class="day-date">Day <?= $index + 1 ?><br><?= h($day['day_date']) ?></div>
-                    <div class="day-main">
-                        <h2><?= h($day['title'] ?: 'Untitled day') ?></h2>
-                        <?php if ($day['location']): ?><div class="muted"><?= h($day['location']) ?></div><?php endif; ?>
-                        <?php if ($day['hotel']): ?><span class="pill">Hotel: <?= h($day['hotel']) ?></span><?php endif; ?>
-                        <?php if ($day['transport']): ?><span class="pill">Transport: <?= h($day['transport']) ?></span><?php endif; ?>
-                        <?php if (trim((string)$day['details']) !== ''): ?><div class="summary"><?= h($day['details']) ?></div><?php endif; ?>
+            <div class="day <?= $index === 0 ? 'first-day' : '' ?>">
+                <div class="day-header">
+                    <div class="day-title">
+                        <div class="day-date">Day <?= $index + 1 ?><br><?= h($day['day_date']) ?></div>
+                        <div class="day-main">
+                            <h2><?= h($day['title'] ?: 'Untitled day') ?></h2>
+                            <?php if ($day['location']): ?><div class="muted"><?= h($day['location']) ?></div><?php endif; ?>
+                            <?php if ($day['hotel']): ?><span class="pill">Hotel: <?= h($day['hotel']) ?></span><?php endif; ?>
+                            <?php if ($day['transport']): ?><span class="pill">Transport: <?= h($day['transport']) ?></span><?php endif; ?>
+                            <?php if (trim((string)$day['details']) !== ''): ?><div class="summary"><?= h($day['details']) ?></div><?php endif; ?>
+                        </div>
                     </div>
                 </div>
+                <div class="day-body">
 
                 <?php foreach ($documents as $document): ?>
                     <?php $details = decoded_json($document['extracted_json'] ?? ''); ?>
@@ -189,6 +202,7 @@ function render_itinerary_pdf_html(array $trip, array $days, array $flights, arr
                         <?php render_notes($details['important_notes'] ?? []); ?>
                     </div>
                 <?php endforeach; ?>
+                </div>
             </div>
         <?php endforeach; ?>
     </div>
