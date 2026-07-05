@@ -82,10 +82,10 @@
 }
 .itinerary-day-title {
     color: var(--tblr-body-color);
-    font-size: 1.35rem;
-    font-weight: 700;
-    line-height: 1.25;
-    margin-bottom: 0.15rem;
+    font-size: 1.75rem;
+    font-weight: 800;
+    line-height: 1.18;
+    margin-bottom: 0.25rem;
 }
 .openai-thinking {
     align-items: center;
@@ -137,7 +137,7 @@
         width: 100%;
     }
     .itinerary-day-title {
-        font-size: 1.15rem;
+        font-size: 1.35rem;
     }
     .openai-thinking-box {
         align-items: flex-start;
