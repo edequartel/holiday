@@ -100,8 +100,8 @@ function render_itinerary_pdf_html(array $trip, array $days, array $flights, arr
         .flight-table th { background: #e8f0fb; border-bottom: 1px solid #cbd8ea; color: #334155; font-size: 9px; letter-spacing: .06em; padding: 8px; text-align: left; text-transform: uppercase; }
         .flight-table td { border-bottom: 1px solid #e5eaf2; padding: 8px; vertical-align: top; }
         .flight-table tr:last-child td { border-bottom: 0; }
-        .day { border: 1px solid #cbd8ea; border-radius: 10px; margin-top: 18px; page-break-before: always; page-break-inside: avoid; }
-        .day.first-day { page-break-before: auto; }
+        .day { border: 1px solid #cbd8ea; border-radius: 10px; margin-top: 18px; page-break-inside: auto; }
+        .day.first-day { margin-top: 0; }
         .day-header { background: #f3f7fb; border-bottom: 1px solid #cbd8ea; border-left: 6px solid #2563eb; padding: 12px 14px; page-break-after: avoid; page-break-inside: avoid; }
         .day-body { padding: 12px 14px 14px; }
         .day-title { display: table; width: 100%; }
