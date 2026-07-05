@@ -9,6 +9,26 @@
 .map-popup-title {
     font-weight: 700;
 }
+.route-arrow-icon {
+    background: transparent;
+    border: 0;
+}
+.route-arrow {
+    display: block;
+    height: 0;
+    position: relative;
+    transform-origin: center;
+    width: 22px;
+}
+.route-arrow::before {
+    border-bottom: 6px solid transparent;
+    border-left: 12px solid #206bc4;
+    border-top: 6px solid transparent;
+    content: "";
+    left: 5px;
+    position: absolute;
+    top: -6px;
+}
 .itinerary-day {
     scroll-margin-top: 1rem;
 }

@@ -1233,13 +1233,52 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r
 const iconMap = {hotel:'🏨', parking:'🅿️', poi:'📍', restaurant:'🍜', transport:'🚆', other:'⭐'};
 const markers = [];
 const markersById = {};
+const routeLatLngs = [];
 mapPoints.forEach(p => {
-    const marker = L.marker([parseFloat(p.latitude), parseFloat(p.longitude)]).addTo(map);
+    const latLng = [parseFloat(p.latitude), parseFloat(p.longitude)];
+    routeLatLngs.push(latLng);
+    const marker = L.marker(latLng).addTo(map);
     marker.bindPopup(`<div class="map-popup-title">${iconMap[p.point_type] || '📍'} ${escapeHtml(p.name)}</div><div>${escapeHtml(p.address || p.city || '')}</div><div class="text-secondary">${escapeHtml(p.notes || '')}</div>`);
     markers.push(marker);
     markersById[p.id] = marker;
 });
+let routeLine = null;
+const routeArrows = L.layerGroup().addTo(map);
+if (routeLatLngs.length > 1) {
+    routeLine = L.polyline(routeLatLngs, {
+        color: '#206bc4',
+        weight: 3,
+        opacity: 0.8,
+        dashArray: '8 8'
+    }).addTo(map);
+    drawRouteArrows();
+    map.on('zoomend moveend', drawRouteArrows);
+}
 if (markers.length > 1) map.fitBounds(L.featureGroup(markers).getBounds().pad(0.2));
+
+function drawRouteArrows() {
+    routeArrows.clearLayers();
+    for (let i = 0; i < routeLatLngs.length - 1; i++) {
+        const from = L.latLng(routeLatLngs[i]);
+        const to = L.latLng(routeLatLngs[i + 1]);
+        if (from.equals(to)) continue;
+
+        const midpoint = L.latLng((from.lat + to.lat) / 2, (from.lng + to.lng) / 2);
+        const fromPoint = map.latLngToLayerPoint(from);
+        const toPoint = map.latLngToLayerPoint(to);
+        const angle = Math.atan2(toPoint.y - fromPoint.y, toPoint.x - fromPoint.x) * 180 / Math.PI;
+
+        L.marker(midpoint, {
+            interactive: false,
+            icon: L.divIcon({
+                className: 'route-arrow-icon',
+                html: `<span class="route-arrow" style="transform: rotate(${angle}deg)"></span>`,
+                iconSize: [22, 22],
+                iconAnchor: [11, 11]
+            })
+        }).addTo(routeArrows);
+    }
+}
 
 function focusLocation(pointId) {
     const marker = markersById[pointId];
