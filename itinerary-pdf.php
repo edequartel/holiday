@@ -105,9 +105,8 @@ function render_itinerary_pdf_html(array $trip, array $days, array $flights, arr
         .day.first-day { margin-top: 0; }
         .day-header { background: #f6f9fd; border: 1px solid #c8d7ee; border-radius: 10px; box-shadow: 0 2px 8px rgba(37, 99, 235, 0.08); padding: 14px 16px; page-break-after: avoid; page-break-inside: avoid; }
         .day-body { padding: 12px 14px 14px; }
-        .day-title { display: table; width: 100%; }
-        .day-date { color: #2563eb; display: table-cell; font-size: 12px; font-weight: bold; white-space: nowrap; width: 105px; }
-        .day-main { display: table-cell; }
+        .day-kicker { color: #2563eb; font-size: 10px; font-weight: bold; letter-spacing: .08em; margin-bottom: 5px; text-transform: uppercase; }
+        .day-title { color: #111827; font-size: 22px; font-weight: 800; line-height: 1.2; margin-bottom: 8px; }
         .pill { background: #eef2ff; border: 1px solid #d8defc; border-radius: 12px; color: #3730a3; display: inline-block; font-size: 9px; margin: 7px 5px 0 0; padding: 3px 8px; }
         .summary { color: #374151; margin-top: 9px; white-space: pre-line; }
         .grid { display: table; margin-top: 10px; width: 100%; }
@@ -170,17 +169,13 @@ function render_itinerary_pdf_html(array $trip, array $days, array $flights, arr
             ?>
             <div class="day <?= $index === 0 ? 'first-day' : '' ?>">
                 <div class="day-header">
-                    <div class="day-title">
-                        <div class="day-date">Day <?= $index + 1 ?><br><?= h($day['day_date']) ?></div>
-                        <div class="day-main">
-                            <h2><?= h($day['title'] ?: 'Untitled day') ?></h2>
-                            <?php if ($day['location']): ?><div class="muted"><?= h($day['location']) ?></div><?php endif; ?>
-                            <?php if ($day['hotel']): ?><span class="pill">Hotel: <?= h($day['hotel']) ?></span><?php endif; ?>
-                            <?php if (!empty($day['url'])): ?><span class="pill">URL: <?= h($day['url']) ?></span><?php endif; ?>
-                            <?php if ($day['transport']): ?><span class="pill">Transport: <?= h($day['transport']) ?></span><?php endif; ?>
-                            <?php if (trim((string)$day['details']) !== ''): ?><div class="summary"><?= h($day['details']) ?></div><?php endif; ?>
-                        </div>
-                    </div>
+                    <div class="day-kicker">Day <?= $index + 1 ?></div>
+                    <div class="day-title"><?= h($day['day_date']) ?> · <?= h($day['title'] ?: 'Untitled day') ?></div>
+                    <?php if ($day['location']): ?><div class="muted"><?= h($day['location']) ?></div><?php endif; ?>
+                    <?php if ($day['hotel']): ?><span class="pill">Hotel: <?= h($day['hotel']) ?></span><?php endif; ?>
+                    <?php if (!empty($day['url'])): ?><span class="pill">URL: <?= h($day['url']) ?></span><?php endif; ?>
+                    <?php if ($day['transport']): ?><span class="pill">Transport: <?= h($day['transport']) ?></span><?php endif; ?>
+                    <?php if (trim((string)$day['details']) !== ''): ?><div class="summary"><?= h($day['details']) ?></div><?php endif; ?>
                 </div>
                 <div class="day-body">
 

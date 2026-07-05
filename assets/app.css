@@ -80,6 +80,13 @@
 .itinerary-day {
     scroll-margin-top: 1rem;
 }
+.itinerary-day-title {
+    color: var(--tblr-body-color);
+    font-size: 1.35rem;
+    font-weight: 700;
+    line-height: 1.25;
+    margin-bottom: 0.15rem;
+}
 .openai-thinking {
     align-items: center;
     background: rgba(255, 255, 255, 0.82);
@@ -128,6 +135,9 @@
     .app-item-actions .btn,
     .app-delete-day {
         width: 100%;
+    }
+    .itinerary-day-title {
+        font-size: 1.15rem;
     }
     .openai-thinking-box {
         align-items: flex-start;
