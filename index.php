@@ -227,7 +227,7 @@ function import_day_pdf(PDO $pdo, int $tripId): array
         ]);
         $dayId = (int)$pdo->lastInsertId();
 
-        $stmt = $pdo->prepare('INSERT INTO day_documents (trip_id, day_id, original_name, stored_name, file_path, mime_type, file_size, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+        $stmt = $pdo->prepare('INSERT INTO day_documents (trip_id, day_id, original_name, stored_name, file_path, mime_type, file_size, notes, extracted_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
         $stmt->execute([
             $tripId,
             $dayId,
@@ -237,6 +237,7 @@ function import_day_pdf(PDO $pdo, int $tripId): array
             $mimeType,
             (int)$upload['size'],
             $extraDetails,
+            json_encode($itinerary, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
         ]);
 
         return ['type' => 'success', 'message' => 'PDF imported and itinerary day added.'];
@@ -395,6 +396,60 @@ function format_imported_itinerary_details(array $itinerary): string
 
     return implode("\n", array_values(array_unique($lines)));
 }
+
+function booking_detail_groups(array $itinerary): array
+{
+    return [
+        'Stay' => [
+            'Hotel' => $itinerary['hotel'] ?? '',
+            'Room' => $itinerary['room'] ?? '',
+            'Guest' => $itinerary['guest_name'] ?? '',
+            'Address' => $itinerary['address'] ?? '',
+        ],
+        'Dates' => [
+            'Arrival' => $itinerary['arrival_date'] ?? '',
+            'Departure' => $itinerary['departure_date'] ?? '',
+            'Nights' => $itinerary['nights'] ?? '',
+        ],
+        'Arrival' => [
+            'Check-in' => $itinerary['check_in'] ?? '',
+            'Check-out' => $itinerary['check_out'] ?? '',
+            'Transport' => $itinerary['transport'] ?? '',
+            'Parking' => $itinerary['parking'] ?? '',
+        ],
+        'Meals' => [
+            'Breakfast' => $itinerary['breakfast'] ?? '',
+        ],
+        'Booking' => [
+            'Confirmation' => $itinerary['confirmation'] ?? '',
+            'Payment' => $itinerary['payment'] ?? '',
+            'Cancellation' => $itinerary['cancellation'] ?? '',
+            'Contact' => $itinerary['contact'] ?? '',
+        ],
+    ];
+}
+
+function decoded_booking_details(array $document): array
+{
+    $json = $document['extracted_json'] ?? '';
+    if (!is_string($json) || trim($json) === '') {
+        return [];
+    }
+
+    $decoded = json_decode($json, true);
+    return is_array($decoded) ? $decoded : [];
+}
+
+function has_group_values(array $fields): bool
+{
+    foreach ($fields as $value) {
+        if (trim((string)$value) !== '') {
+            return true;
+        }
+    }
+
+    return false;
+}
 ?>
 <!doctype html>
 <html lang="en">
@@ -502,8 +557,43 @@ function format_imported_itinerary_details(array $itinerary): string
             <div class="card mb-3"><div class="card-header"><h3 class="card-title"><i class="ti ti-calendar-event me-2"></i>Itinerary</h3></div><div class="list-group list-group-flush">
                 <?php foreach ($days as $d): ?><div class="list-group-item"><div class="row"><div class="col"><strong><?= h($d['day_date']) ?> · <?= h($d['title']) ?></strong><div class="text-secondary"><?= h($d['location']) ?></div><p class="mt-2"><?= nl2br(h($d['details'])) ?></p><span class="badge bg-blue-lt">Transport: <?= h($d['transport']) ?></span> <span class="badge bg-green-lt">Hotel: <?= h($d['hotel']) ?></span>
                     <?php if (!empty($documentsByDay[(int)$d['id']])): ?><div class="mt-3 no-print">
-                        <?php foreach ($documentsByDay[(int)$d['id']] as $document): ?>
-                            <a class="btn btn-sm btn-outline-secondary me-2 mb-2" href="document.php?id=<?= (int)$document['id'] ?>" target="_blank" rel="noopener"><i class="ti ti-file-type-pdf me-1"></i>Open <?= h($document['original_name']) ?></a>
+                        <?php foreach ($documentsByDay[(int)$d['id']] as $document): $bookingDetails = decoded_booking_details($document); ?>
+                            <div class="border rounded p-3 mb-2">
+                                <div class="d-flex justify-content-between gap-2 align-items-center mb-2">
+                                    <strong><i class="ti ti-file-type-pdf me-1"></i><?= h($document['original_name']) ?></strong>
+                                    <a class="btn btn-sm btn-outline-secondary" href="document.php?id=<?= (int)$document['id'] ?>" target="_blank" rel="noopener">Open</a>
+                                </div>
+                                <?php if ($bookingDetails): ?>
+                                    <div class="row g-2">
+                                        <?php foreach (booking_detail_groups($bookingDetails) as $groupTitle => $fields): ?>
+                                            <?php if (has_group_values($fields)): ?>
+                                                <div class="col-md-6">
+                                                    <div class="text-secondary small text-uppercase"><?= h($groupTitle) ?></div>
+                                                    <dl class="row mb-0">
+                                                        <?php foreach ($fields as $label => $value): ?>
+                                                            <?php if (trim((string)$value) !== ''): ?>
+                                                                <dt class="col-sm-4"><?= h($label) ?></dt>
+                                                                <dd class="col-sm-8"><?= nl2br(h($value)) ?></dd>
+                                                            <?php endif; ?>
+                                                        <?php endforeach; ?>
+                                                    </dl>
+                                                </div>
+                                            <?php endif; ?>
+                                        <?php endforeach; ?>
+                                        <?php $importantNotes = $bookingDetails['important_notes'] ?? []; ?>
+                                        <?php if (is_array($importantNotes) && count(array_filter($importantNotes))): ?>
+                                            <div class="col-12">
+                                                <div class="text-secondary small text-uppercase">Important notes</div>
+                                                <ul class="mb-0 ps-3">
+                                                    <?php foreach ($importantNotes as $note): ?>
+                                                        <?php if (trim((string)$note) !== ''): ?><li><?= h($note) ?></li><?php endif; ?>
+                                                    <?php endforeach; ?>
+                                                </ul>
+                                            </div>
+                                        <?php endif; ?>
+                                    </div>
+                                <?php endif; ?>
+                            </div>
                         <?php endforeach; ?>
                     </div><?php endif; ?>
                 </div><div class="col-auto no-print"><form method="post"><input type="hidden" name="action" value="delete_day"><input type="hidden" name="trip_id" value="<?= $tripId ?>"><input type="hidden" name="day_id" value="<?= (int)$d['id'] ?>"><button class="btn btn-sm btn-outline-danger"><i class="ti ti-trash"></i></button></form></div></div></div><?php endforeach; ?>

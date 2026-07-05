@@ -42,9 +42,15 @@ function ensure_day_documents_table(PDO $pdo): void
           mime_type VARCHAR(100) NOT NULL DEFAULT 'application/pdf',
           file_size INT NOT NULL DEFAULT 0,
           notes TEXT,
+          extracted_json JSON NULL,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE CASCADE,
           FOREIGN KEY (day_id) REFERENCES itinerary_days(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
+
+    $columns = $pdo->query("SHOW COLUMNS FROM day_documents LIKE 'extracted_json'")->fetchAll();
+    if (!$columns) {
+        $pdo->exec('ALTER TABLE day_documents ADD COLUMN extracted_json JSON NULL AFTER notes');
+    }
 }

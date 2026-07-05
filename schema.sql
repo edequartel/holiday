@@ -72,6 +72,7 @@ CREATE TABLE day_documents (
   mime_type VARCHAR(100) NOT NULL DEFAULT 'application/pdf',
   file_size INT NOT NULL DEFAULT 0,
   notes TEXT,
+  extracted_json JSON NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE CASCADE,
   FOREIGN KEY (day_id) REFERENCES itinerary_days(id) ON DELETE CASCADE
