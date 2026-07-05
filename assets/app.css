@@ -12,6 +12,33 @@
 .itinerary-day {
     scroll-margin-top: 1rem;
 }
+.openai-thinking {
+    align-items: center;
+    background: rgba(255, 255, 255, 0.82);
+    bottom: 0;
+    display: none;
+    justify-content: center;
+    left: 0;
+    position: fixed;
+    right: 0;
+    top: 0;
+    z-index: 2000;
+}
+.openai-thinking.is-visible {
+    display: flex;
+}
+.openai-thinking-box {
+    align-items: center;
+    background: #fff;
+    border: 1px solid rgba(98, 105, 118, 0.16);
+    border-radius: 8px;
+    box-shadow: 0 16px 48px rgba(24, 36, 51, 0.16);
+    display: flex;
+    gap: 1rem;
+    max-width: 420px;
+    padding: 1.25rem 1.5rem;
+    width: calc(100% - 2rem);
+}
 @media print {
     .no-print { display: none !important; }
     #map { height: 360px; }

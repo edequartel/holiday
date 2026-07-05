@@ -141,6 +141,8 @@ if ($tripId) {
     foreach ($stmt->fetchAll() as $link) {
         $linksByDay[(int)$link['day_id']][] = $link;
     }
+
+    usort($points, 'compare_points_by_date');
 }
 $totalItems = count($items);
 $packedItems = count(array_filter($items, fn($i) => (int)$i['packed'] === 1));
@@ -191,6 +193,28 @@ function delete_day_with_documents(PDO $pdo, int $dayId, int $tripId): void
 
     $stmt = $pdo->prepare('DELETE FROM itinerary_days WHERE id=? AND trip_id=?');
     $stmt->execute([$dayId, $tripId]);
+}
+
+function compare_points_by_date(array $a, array $b): int
+{
+    $dateA = point_sort_date($a);
+    $dateB = point_sort_date($b);
+
+    if ($dateA === $dateB) {
+        return strcmp((string)$a['name'], (string)$b['name']);
+    }
+
+    return strcmp($dateA, $dateB);
+}
+
+function point_sort_date(array $point): string
+{
+    $notes = (string)($point['notes'] ?? '');
+    if (preg_match('/\d{4}-\d{2}-\d{2}/', $notes, $matches)) {
+        return $matches[0];
+    }
+
+    return substr((string)($point['created_at'] ?? '9999-12-31'), 0, 10);
 }
 
 function delete_uploaded_document_file(PDO $pdo, string $relativePath, int $deletedDayId): void
@@ -860,6 +884,15 @@ function day_summary_fields(array $day): array
     <link href="assets/app.css" rel="stylesheet">
 </head>
 <body>
+<div id="openaiThinking" class="openai-thinking" aria-live="polite" aria-hidden="true">
+    <div class="openai-thinking-box">
+        <div class="spinner-border text-primary" role="status"></div>
+        <div>
+            <strong>OpenAI is thinking</strong>
+            <div class="text-secondary">Analysing your travel information...</div>
+        </div>
+    </div>
+</div>
 <div class="page"><div class="page-wrapper">
     <div class="page-header d-print-none"><div class="container-xl"><div class="row align-items-center">
         <div class="col"><h2 class="page-title"><i class="ti ti-plane-departure me-2"></i>Holiday Planner</h2><div class="text-secondary">Trips · flights · itinerary · map · OpenAI POI suggestions</div></div>
@@ -966,6 +999,7 @@ function day_summary_fields(array $day): array
                                             <div class="col">
                                                 <div class="d-flex flex-wrap align-items-center gap-2">
                                                     <strong><?= h($point['name']) ?></strong>
+                                                    <span class="badge bg-orange-lt"><?= h(point_sort_date($point)) ?></span>
                                                     <span class="badge bg-blue-lt"><?= h($point['point_type']) ?></span>
                                                     <?php if ($point['source']): ?><span class="badge bg-green-lt"><?= h($point['source']) ?></span><?php endif; ?>
                                                 </div>
@@ -1198,8 +1232,28 @@ function escapeHtml(str) {
     return String(str).replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 }
 
+function showOpenAiThinking(message = 'Analysing your travel information...') {
+    const overlay = document.getElementById('openaiThinking');
+    if (!overlay) return;
+    const text = overlay.querySelector('.text-secondary');
+    if (text) text.textContent = message;
+    overlay.classList.add('is-visible');
+    overlay.setAttribute('aria-hidden', 'false');
+}
+
+document.querySelectorAll('form').forEach(form => {
+    const action = form.querySelector('input[name="action"]')?.value;
+    if (['import_day_pdf', 'add_day_link'].includes(action)) {
+        form.addEventListener('submit', () => {
+            showOpenAiThinking(action === 'import_day_pdf' ? 'Reading the document and dividing details by day...' : 'Reading the website and extracting useful day details...');
+            form.querySelectorAll('button').forEach(button => button.disabled = true);
+        });
+    }
+});
+
 async function suggestPoi() {
     const box = document.getElementById('aiResults');
+    showOpenAiThinking('Finding useful POI suggestions...');
     box.innerHTML = '<div class="alert alert-info">Asking OpenAI for POI suggestions...</div>';
     try {
         const res = await fetch('api/suggest-poi.php', {
@@ -1216,6 +1270,12 @@ async function suggestPoi() {
         renderAiResults(data.points || []);
     } catch (err) {
         box.innerHTML = `<div class="alert alert-danger">${escapeHtml(err.message)}</div>`;
+    } finally {
+        const overlay = document.getElementById('openaiThinking');
+        if (overlay) {
+            overlay.classList.remove('is-visible');
+            overlay.setAttribute('aria-hidden', 'true');
+        }
     }
 }
 
