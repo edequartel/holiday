@@ -2,12 +2,15 @@
 session_start();
 
 require __DIR__ . '/includes/db.php';
+ensure_day_documents_table($pdo);
 
 const HOLIDAY_GIT_REMOTE = 'https://github.com/edequartel/holiday.git';
 
 $action = $_POST['action'] ?? null;
 $gitPullResult = $_SESSION['git_pull_result'] ?? null;
+$documentImportResult = $_SESSION['document_import_result'] ?? null;
 unset($_SESSION['git_pull_result']);
+unset($_SESSION['document_import_result']);
 
 if ($action === 'git_pull') {
     $_SESSION['git_pull_result'] = run_git_pull();
@@ -28,6 +31,11 @@ if ($action === 'create_trip') {
 }
 
 $tripIdPost = (int)($_POST['trip_id'] ?? 0);
+
+if ($action === 'import_day_pdf') {
+    $_SESSION['document_import_result'] = import_day_pdf($pdo, $tripIdPost);
+    redirect_to_trip($tripIdPost);
+}
 
 if ($action === 'add_day') {
     $stmt = $pdo->prepare('INSERT INTO itinerary_days (trip_id, day_date, location, title, details, transport, hotel) VALUES (?, ?, ?, ?, ?, ?, ?)');
@@ -81,7 +89,7 @@ if (in_array($action, ['delete_day','delete_flight','delete_item','delete_point'
 $trips = $pdo->query('SELECT * FROM trips ORDER BY start_date DESC, id DESC')->fetchAll();
 $tripId = isset($_GET['trip_id']) ? (int)$_GET['trip_id'] : (int)($trips[0]['id'] ?? 0);
 
-$trip = null; $days = []; $flights = []; $items = []; $points = [];
+$trip = null; $days = []; $flights = []; $items = []; $points = []; $documentsByDay = [];
 if ($tripId) {
     $stmt = $pdo->prepare('SELECT * FROM trips WHERE id=?');
     $stmt->execute([$tripId]);
@@ -96,6 +104,12 @@ if ($tripId) {
         $stmt = $pdo->prepare($sql);
         $stmt->execute([$tripId]);
         $$var = $stmt->fetchAll();
+    }
+
+    $stmt = $pdo->prepare('SELECT * FROM day_documents WHERE trip_id=? ORDER BY created_at DESC, id DESC');
+    $stmt->execute([$tripId]);
+    foreach ($stmt->fetchAll() as $document) {
+        $documentsByDay[(int)$document['day_id']][] = $document;
     }
 }
 $totalItems = count($items);
@@ -136,6 +150,189 @@ function run_git_pull(): array
         'message' => implode("\n", $output),
     ];
 }
+
+function import_day_pdf(PDO $pdo, int $tripId): array
+{
+    if ($tripId <= 0) {
+        return ['type' => 'danger', 'message' => 'Choose a trip before uploading a booking PDF.'];
+    }
+
+    $dayDate = trim($_POST['day_date'] ?? '');
+    if ($dayDate === '') {
+        return ['type' => 'danger', 'message' => 'Choose the day date for this document.'];
+    }
+
+    $stmt = $pdo->prepare('SELECT * FROM trips WHERE id=?');
+    $stmt->execute([$tripId]);
+    $trip = $stmt->fetch();
+    if (!$trip) {
+        return ['type' => 'danger', 'message' => 'Trip not found.'];
+    }
+
+    $upload = $_FILES['booking_pdf'] ?? null;
+    if (!$upload || (int)$upload['error'] !== UPLOAD_ERR_OK) {
+        return ['type' => 'danger', 'message' => 'PDF upload failed.'];
+    }
+
+    if ((int)$upload['size'] > 20 * 1024 * 1024) {
+        return ['type' => 'danger', 'message' => 'PDF is too large. Maximum size is 20 MB.'];
+    }
+
+    $finfo = new finfo(FILEINFO_MIME_TYPE);
+    $mimeType = $finfo->file($upload['tmp_name']) ?: '';
+    if ($mimeType !== 'application/pdf') {
+        return ['type' => 'danger', 'message' => 'Only PDF files can be uploaded.'];
+    }
+
+    $uploadDir = __DIR__ . '/uploads/day-documents';
+    if (!is_dir($uploadDir) && !mkdir($uploadDir, 0775, true)) {
+        return ['type' => 'danger', 'message' => 'Could not create the upload folder.'];
+    }
+
+    $originalName = basename((string)$upload['name']);
+    $storedName = bin2hex(random_bytes(16)) . '.pdf';
+    $relativePath = 'uploads/day-documents/' . $storedName;
+    $storedPath = __DIR__ . '/' . $relativePath;
+
+    if (!move_uploaded_file($upload['tmp_name'], $storedPath)) {
+        return ['type' => 'danger', 'message' => 'Could not store the uploaded PDF.'];
+    }
+
+    $extraDetails = trim($_POST['extra_details'] ?? '');
+    try {
+        $itinerary = extract_itinerary_from_pdf($storedPath, $originalName, $trip, $dayDate, $extraDetails);
+
+        $stmt = $pdo->prepare('INSERT INTO itinerary_days (trip_id, day_date, location, title, details, transport, hotel) VALUES (?, ?, ?, ?, ?, ?, ?)');
+        $stmt->execute([
+            $tripId,
+            $dayDate,
+            $itinerary['location'] ?? '',
+            $itinerary['title'] ?? 'Booking details',
+            $itinerary['details'] ?? '',
+            $itinerary['transport'] ?? '',
+            $itinerary['hotel'] ?? '',
+        ]);
+        $dayId = (int)$pdo->lastInsertId();
+
+        $stmt = $pdo->prepare('INSERT INTO day_documents (trip_id, day_id, original_name, stored_name, file_path, mime_type, file_size, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+        $stmt->execute([
+            $tripId,
+            $dayId,
+            $originalName,
+            $storedName,
+            $relativePath,
+            $mimeType,
+            (int)$upload['size'],
+            $extraDetails,
+        ]);
+
+        return ['type' => 'success', 'message' => 'PDF imported and itinerary day added.'];
+    } catch (Throwable $e) {
+        @unlink($storedPath);
+        return ['type' => 'danger', 'message' => 'OpenAI could not read this PDF: ' . $e->getMessage()];
+    }
+}
+
+function extract_itinerary_from_pdf(string $filePath, string $filename, array $trip, string $dayDate, string $extraDetails): array
+{
+    $config = holiday_config();
+    $apiKey = $config['openai_api_key'] ?? '';
+    $model = $config['openai_model'] ?? 'gpt-5.5';
+
+    if ($apiKey === '' || $apiKey === 'YOUR_OPENAI_API_KEY') {
+        throw new RuntimeException('OpenAI API key is missing in the private secrets file.');
+    }
+
+    $fileData = file_get_contents($filePath);
+    if ($fileData === false) {
+        throw new RuntimeException('Could not read the uploaded PDF.');
+    }
+
+    $prompt = "Read this booking or travel-detail PDF and create one itinerary day for a holiday planner.\n" .
+        "Trip: " . ($trip['title'] ?? '') . "\n" .
+        "Destination: " . ($trip['destination'] ?? '') . "\n" .
+        "Selected day date: {$dayDate}\n" .
+        "Extra details from user: {$extraDetails}\n\n" .
+        "Return strict JSON only, no markdown. Format:\n" .
+        "{\"title\":\"short day title\",\"location\":\"city or place\",\"details\":\"times, addresses, booking references, check-in details and useful notes as readable lines\",\"transport\":\"transport summary if present\",\"hotel\":\"hotel or accommodation name if present\"}\n" .
+        "Use the selected day date as the day date. Keep important booking details, confirmation numbers, addresses and times.";
+
+    $payload = [
+        'model' => $model,
+        'input' => [[
+            'role' => 'user',
+            'content' => [
+                [
+                    'type' => 'input_file',
+                    'filename' => $filename,
+                    'file_data' => 'data:application/pdf;base64,' . base64_encode($fileData),
+                ],
+                [
+                    'type' => 'input_text',
+                    'text' => $prompt,
+                ],
+            ],
+        ]],
+    ];
+
+    $ch = curl_init('https://api.openai.com/v1/responses');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST => true,
+        CURLOPT_HTTPHEADER => [
+            'Content-Type: application/json',
+            'Authorization: Bearer ' . $apiKey,
+        ],
+        CURLOPT_POSTFIELDS => json_encode($payload),
+        CURLOPT_TIMEOUT => 120,
+    ]);
+
+    $response = curl_exec($ch);
+    $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $error = curl_error($ch);
+    curl_close($ch);
+
+    if ($response === false || $status < 200 || $status >= 300) {
+        throw new RuntimeException($error ?: (string)$response);
+    }
+
+    $data = json_decode($response, true);
+    if (!is_array($data)) {
+        throw new RuntimeException('OpenAI returned an unreadable response.');
+    }
+
+    $text = response_output_text($data);
+    if (!$text) {
+        throw new RuntimeException('No text returned by OpenAI.');
+    }
+
+    $text = trim($text);
+    $text = preg_replace('/^```json\s*|\s*```$/', '', $text);
+    $decoded = json_decode($text, true);
+    if (!is_array($decoded)) {
+        throw new RuntimeException('OpenAI did not return valid JSON.');
+    }
+
+    return $decoded;
+}
+
+function response_output_text(array $data): string
+{
+    if (isset($data['output_text']) && is_string($data['output_text'])) {
+        return $data['output_text'];
+    }
+
+    $parts = [];
+    foreach ($data['output'] ?? [] as $output) {
+        foreach ($output['content'] ?? [] as $content) {
+            if (isset($content['text']) && is_string($content['text'])) {
+                $parts[] = $content['text'];
+            }
+        }
+    }
+
+    return trim(implode("\n", $parts));
+}
 ?>
 <!doctype html>
 <html lang="en">
@@ -167,6 +364,12 @@ function run_git_pull(): array
             <div class="col-12 no-print"><div class="alert alert-<?= h($gitPullResult['type']) ?> mb-0">
                 <strong>Git pull</strong>
                 <pre class="mb-0 mt-2"><?= h($gitPullResult['message'] ?: 'No output returned.') ?></pre>
+            </div></div>
+        <?php endif; ?>
+        <?php if ($documentImportResult): ?>
+            <div class="col-12 no-print"><div class="alert alert-<?= h($documentImportResult['type']) ?> mb-0">
+                <strong>PDF itinerary import</strong>
+                <div class="mt-2"><?= nl2br(h($documentImportResult['message'])) ?></div>
             </div></div>
         <?php endif; ?>
         <div class="col-lg-3 no-print">
@@ -223,8 +426,25 @@ function run_git_pull(): array
             </tbody></table></div><form method="post" class="card-body no-print row g-2"><input type="hidden" name="action" value="add_flight"><input type="hidden" name="trip_id" value="<?= $tripId ?>"><div class="col-md-2"><input name="flight_date" type="date" class="form-control"></div><div class="col-md-2"><input name="airline" class="form-control" placeholder="Airline"></div><div class="col-md-2"><input name="flight_number" class="form-control" placeholder="Flight no."></div><div class="col-md-2"><input name="departure_airport" class="form-control" placeholder="From"></div><div class="col-md-2"><input name="arrival_airport" class="form-control" placeholder="To"></div><div class="col-md-1"><input name="departure_time" type="time" class="form-control"></div><div class="col-md-1"><input name="arrival_time" type="time" class="form-control"></div><div class="col-10"><input name="notes" class="form-control" placeholder="Notes"></div><div class="col-2"><button class="btn btn-primary w-100">Add flight</button></div></form></div>
 
             <div class="card mb-3"><div class="card-header"><h3 class="card-title"><i class="ti ti-calendar-event me-2"></i>Itinerary</h3></div><div class="list-group list-group-flush">
-                <?php foreach ($days as $d): ?><div class="list-group-item"><div class="row"><div class="col"><strong><?= h($d['day_date']) ?> · <?= h($d['title']) ?></strong><div class="text-secondary"><?= h($d['location']) ?></div><p class="mt-2"><?= nl2br(h($d['details'])) ?></p><span class="badge bg-blue-lt">Transport: <?= h($d['transport']) ?></span> <span class="badge bg-green-lt">Hotel: <?= h($d['hotel']) ?></span></div><div class="col-auto no-print"><form method="post"><input type="hidden" name="action" value="delete_day"><input type="hidden" name="trip_id" value="<?= $tripId ?>"><input type="hidden" name="day_id" value="<?= (int)$d['id'] ?>"><button class="btn btn-sm btn-outline-danger"><i class="ti ti-trash"></i></button></form></div></div></div><?php endforeach; ?>
-            </div><form method="post" class="card-body no-print row g-2"><input type="hidden" name="action" value="add_day"><input type="hidden" name="trip_id" value="<?= $tripId ?>"><div class="col-md-2"><input name="day_date" type="date" class="form-control" required></div><div class="col-md-3"><input name="location" class="form-control" placeholder="Location"></div><div class="col-md-4"><input name="title" class="form-control" placeholder="Day title"></div><div class="col-md-3"><input name="hotel" class="form-control" placeholder="Hotel"></div><div class="col-md-4"><input name="transport" class="form-control" placeholder="Transport"></div><div class="col-md-8"><textarea name="details" class="form-control" rows="2" placeholder="Plans, sights, restaurants, notes"></textarea></div><div class="col-12"><button class="btn btn-primary">Add day</button></div></form></div>
+                <?php foreach ($days as $d): ?><div class="list-group-item"><div class="row"><div class="col"><strong><?= h($d['day_date']) ?> · <?= h($d['title']) ?></strong><div class="text-secondary"><?= h($d['location']) ?></div><p class="mt-2"><?= nl2br(h($d['details'])) ?></p><span class="badge bg-blue-lt">Transport: <?= h($d['transport']) ?></span> <span class="badge bg-green-lt">Hotel: <?= h($d['hotel']) ?></span>
+                    <?php if (!empty($documentsByDay[(int)$d['id']])): ?><div class="mt-3 no-print">
+                        <?php foreach ($documentsByDay[(int)$d['id']] as $document): ?>
+                            <a class="btn btn-sm btn-outline-secondary me-2 mb-2" href="document.php?id=<?= (int)$document['id'] ?>" target="_blank" rel="noopener"><i class="ti ti-file-type-pdf me-1"></i>Open <?= h($document['original_name']) ?></a>
+                        <?php endforeach; ?>
+                    </div><?php endif; ?>
+                </div><div class="col-auto no-print"><form method="post"><input type="hidden" name="action" value="delete_day"><input type="hidden" name="trip_id" value="<?= $tripId ?>"><input type="hidden" name="day_id" value="<?= (int)$d['id'] ?>"><button class="btn btn-sm btn-outline-danger"><i class="ti ti-trash"></i></button></form></div></div></div><?php endforeach; ?>
+            </div><div class="card-body no-print">
+                <form method="post" class="row g-2"><input type="hidden" name="action" value="add_day"><input type="hidden" name="trip_id" value="<?= $tripId ?>"><div class="col-md-2"><input name="day_date" type="date" class="form-control" required></div><div class="col-md-3"><input name="location" class="form-control" placeholder="Location"></div><div class="col-md-4"><input name="title" class="form-control" placeholder="Day title"></div><div class="col-md-3"><input name="hotel" class="form-control" placeholder="Hotel"></div><div class="col-md-4"><input name="transport" class="form-control" placeholder="Transport"></div><div class="col-md-8"><textarea name="details" class="form-control" rows="2" placeholder="Plans, sights, restaurants, notes"></textarea></div><div class="col-12"><button class="btn btn-primary">Add day</button></div></form>
+                <hr>
+                <form method="post" enctype="multipart/form-data" class="row g-2 align-items-end">
+                    <input type="hidden" name="action" value="import_day_pdf">
+                    <input type="hidden" name="trip_id" value="<?= $tripId ?>">
+                    <div class="col-md-2"><label class="form-label">Day date</label><input name="day_date" type="date" class="form-control" required></div>
+                    <div class="col-md-4"><label class="form-label">Booking PDF</label><input name="booking_pdf" type="file" accept="application/pdf,.pdf" class="form-control" required></div>
+                    <div class="col-md-4"><label class="form-label">Extra details</label><input name="extra_details" class="form-control" placeholder="Room preferences, meeting point, notes"></div>
+                    <div class="col-md-2"><button class="btn btn-outline-primary w-100"><i class="ti ti-sparkles me-1"></i>Import PDF</button></div>
+                </form>
+            </div></div>
 
             <div class="card"><div class="card-header"><h3 class="card-title"><i class="ti ti-backpack me-2"></i>Packing checklist</h3></div><div class="list-group list-group-flush">
                 <?php foreach ($items as $i): ?><div class="list-group-item"><div class="row align-items-center"><div class="col-auto no-print"><form method="post"><input type="hidden" name="action" value="toggle_packed"><input type="hidden" name="trip_id" value="<?= $tripId ?>"><input type="hidden" name="item_id" value="<?= (int)$i['id'] ?>"><button class="btn btn-sm <?= $i['packed'] ? 'btn-success' : 'btn-outline-secondary' ?>"><i class="ti ti-check"></i></button></form></div><div class="col"><span class="<?= $i['packed'] ? 'packed' : '' ?>"><strong><?= h($i['category']) ?>:</strong> <?= h($i['item']) ?></span></div><div class="col-auto text-secondary"><?= h($i['quantity']) ?></div><div class="col-auto no-print"><form method="post"><input type="hidden" name="action" value="delete_item"><input type="hidden" name="trip_id" value="<?= $tripId ?>"><input type="hidden" name="item_id" value="<?= (int)$i['id'] ?>"><button class="btn btn-sm btn-outline-danger"><i class="ti ti-trash"></i></button></form></div></div></div><?php endforeach; ?>

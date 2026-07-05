@@ -5,6 +5,7 @@ A small uploadable PHP/MySQL holiday dashboard with:
 - Trips
 - Flights
 - Day-by-day itinerary
+- PDF booking imports into itinerary days
 - Packing checklist
 - Leaflet map
 - Hotels, parking, points of interest, restaurants and transport points
@@ -31,4 +32,6 @@ For local development only, you can keep an untracked `secrets.php` beside `inde
 
 ## OpenAI
 
-The POI suggestions use the OpenAI Responses API through cURL. The current OpenAI quickstart shows API keys should be stored securely and the Responses API is used for text generation.
+The POI suggestions and PDF itinerary imports use the OpenAI Responses API through cURL. The current OpenAI quickstart shows API keys should be stored securely and the Responses API is used for text generation.
+
+Uploaded booking PDFs are stored in `uploads/day-documents/`, ignored by Git, and opened through `document.php`.

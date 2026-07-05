@@ -2,3 +2,6 @@
 secrets.php
 *.log
 holiday-secrets.php
+uploads/day-documents/*
+!uploads/day-documents/.gitkeep
+!uploads/day-documents/.htaccess
