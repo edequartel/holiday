@@ -102,6 +102,11 @@ function ensure_day_links_table(PDO $pdo): void
 
 function document_dedupe_key(array $document): string
 {
+    $semanticKey = document_semantic_dedupe_key($document);
+    if ($semanticKey !== '') {
+        return $semanticKey;
+    }
+
     $hash = trim((string)($document['file_hash'] ?? ''));
     if ($hash !== '') {
         return 'hash:' . $hash;
@@ -110,6 +115,106 @@ function document_dedupe_key(array $document): string
     return 'legacy:' . strtolower(trim((string)($document['original_name'] ?? ''))) .
         '|' . (int)($document['file_size'] ?? 0) .
         '|' . hash('sha256', (string)($document['extracted_json'] ?? ''));
+}
+
+function document_semantic_dedupe_key(array $document): string
+{
+    $details = decoded_document_details($document);
+    if (!$details) {
+        return '';
+    }
+
+    $confirmation = primary_confirmation($details['confirmation'] ?? '');
+    if ($confirmation !== '') {
+        return 'confirmation:' . implode('|', array_filter([
+            $confirmation,
+            normalize_dedupe_value($details['arrival_date'] ?? $details['day_date'] ?? ''),
+            normalize_dedupe_value($details['hotel'] ?? $details['title'] ?? ''),
+        ]));
+    }
+
+    $hotelOrTitle = normalize_dedupe_value($details['hotel'] ?? $details['title'] ?? '');
+    $arrival = normalize_dedupe_value($details['arrival_date'] ?? $details['day_date'] ?? '');
+    $checkIn = normalize_dedupe_value($details['check_in'] ?? $details['activity_time'] ?? '');
+    $contact = normalize_phone_digits($details['contact'] ?? '');
+    $payment = normalize_money_value($details['payment'] ?? $details['price'] ?? '');
+
+    if ($hotelOrTitle !== '' && $arrival !== '' && ($contact !== '' || $payment !== '')) {
+        return 'semantic-stable:' . implode('|', [$hotelOrTitle, $arrival, $contact, $payment]);
+    }
+
+    if ($hotelOrTitle !== '' && $arrival !== '' && $checkIn !== '') {
+        return 'semantic-time:' . implode('|', [$hotelOrTitle, $arrival, $checkIn]);
+    }
+
+    $address = normalize_dedupe_value($details['address'] ?? '');
+    if ($hotelOrTitle !== '' && $address !== '' && $arrival !== '') {
+        return 'place-date:' . implode('|', [$hotelOrTitle, $address, $arrival]);
+    }
+
+    return '';
+}
+
+function decoded_document_details(array $document): array
+{
+    $json = $document['extracted_json'] ?? '';
+    if (!is_string($json) || trim($json) === '') {
+        return [];
+    }
+
+    $decoded = json_decode($json, true);
+    return is_array($decoded) ? $decoded : [];
+}
+
+function primary_confirmation($value): string
+{
+    $value = strtoupper(trim((string)$value));
+    if ($value === '') {
+        return '';
+    }
+
+    if (preg_match('/[A-Z0-9][A-Z0-9-]{4,}/', $value, $matches)) {
+        return $matches[0];
+    }
+
+    return normalize_dedupe_value($value);
+}
+
+function normalize_dedupe_value($value): string
+{
+    $value = strtolower(trim((string)$value));
+    if ($value === '') {
+        return '';
+    }
+
+    $converted = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $value);
+    if (is_string($converted) && $converted !== '') {
+        $value = $converted;
+    }
+
+    $value = preg_replace('/\b(inc|ltd|hotel|the|a|an)\b/', ' ', $value);
+    $value = preg_replace('/[^a-z0-9]+/', ' ', $value);
+    return trim(preg_replace('/\s+/', ' ', $value));
+}
+
+function normalize_phone_digits($value): string
+{
+    $digits = preg_replace('/\D+/', '', (string)$value);
+    if (!is_string($digits)) {
+        return '';
+    }
+
+    return strlen($digits) >= 6 ? substr($digits, -10) : '';
+}
+
+function normalize_money_value($value): string
+{
+    $value = (string)$value;
+    if (preg_match('/(?:EUR|USD|US\\$|\\$|€)?\\s*([0-9]+(?:[.,][0-9]{2})?)/i', $value, $matches)) {
+        return str_replace(',', '.', $matches[1]);
+    }
+
+    return '';
 }
 
 function group_unique_documents_by_day(array $documents): array
