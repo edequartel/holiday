@@ -1,7 +1,25 @@
 <?php
+session_start();
+
 require __DIR__ . '/includes/db.php';
 
+const HOLIDAY_GIT_REMOTE = 'https://github.com/edequartel/holiday.git';
+
 $action = $_POST['action'] ?? null;
+$gitPullResult = $_SESSION['git_pull_result'] ?? null;
+unset($_SESSION['git_pull_result']);
+
+if ($action === 'git_pull') {
+    $_SESSION['git_pull_result'] = run_git_pull();
+
+    $tripIdPost = (int)($_POST['trip_id'] ?? 0);
+    if ($tripIdPost > 0) {
+        redirect_to_trip($tripIdPost);
+    }
+
+    header('Location: index.php');
+    exit;
+}
 
 if ($action === 'create_trip') {
     $stmt = $pdo->prepare('INSERT INTO trips (title, destination, start_date, end_date, notes) VALUES (?, ?, ?, ?, ?)');
@@ -84,6 +102,40 @@ $totalItems = count($items);
 $packedItems = count(array_filter($items, fn($i) => (int)$i['packed'] === 1));
 $packedPercent = $totalItems ? round(($packedItems / $totalItems) * 100) : 0;
 $mapJson = json_encode($points, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+
+function run_git_pull(): array
+{
+    if (!function_exists('exec')) {
+        return [
+            'type' => 'danger',
+            'message' => 'Git pull failed: PHP exec() is disabled.',
+        ];
+    }
+
+    $repoDir = __DIR__;
+    $branchOutput = [];
+    exec('git -C ' . escapeshellarg($repoDir) . ' branch --show-current 2>&1', $branchOutput, $branchCode);
+
+    $branch = trim(implode("\n", $branchOutput));
+    if ($branchCode !== 0 || $branch === '') {
+        return [
+            'type' => 'danger',
+            'message' => "Git pull failed: couldn't determine the current branch.\n" . implode("\n", $branchOutput),
+        ];
+    }
+
+    $output = [];
+    exec(
+        'git -C ' . escapeshellarg($repoDir) . ' pull --ff-only ' . escapeshellarg(HOLIDAY_GIT_REMOTE) . ' ' . escapeshellarg($branch) . ' 2>&1',
+        $output,
+        $code
+    );
+
+    return [
+        'type' => $code === 0 ? 'success' : 'danger',
+        'message' => implode("\n", $output),
+    ];
+}
 ?>
 <!doctype html>
 <html lang="en">
@@ -100,10 +152,23 @@ $mapJson = json_encode($points, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX
 <div class="page"><div class="page-wrapper">
     <div class="page-header d-print-none"><div class="container-xl"><div class="row align-items-center">
         <div class="col"><h2 class="page-title"><i class="ti ti-plane-departure me-2"></i>Holiday Planner</h2><div class="text-secondary">Trips · flights · itinerary · map · OpenAI POI suggestions</div></div>
-        <div class="col-auto"><button onclick="window.print()" class="btn btn-outline-primary"><i class="ti ti-printer me-1"></i>Print</button></div>
+        <div class="col-auto d-flex gap-2">
+            <form method="post">
+                <input type="hidden" name="action" value="git_pull">
+                <input type="hidden" name="trip_id" value="<?= $tripId ?>">
+                <button class="btn btn-outline-secondary"><i class="ti ti-git-pull-request me-1"></i>Git pull</button>
+            </form>
+            <button onclick="window.print()" class="btn btn-outline-primary"><i class="ti ti-printer me-1"></i>Print</button>
+        </div>
     </div></div></div>
 
     <div class="page-body"><div class="container-xl"><div class="row row-cards">
+        <?php if ($gitPullResult): ?>
+            <div class="col-12 no-print"><div class="alert alert-<?= h($gitPullResult['type']) ?> mb-0">
+                <strong>Git pull</strong>
+                <pre class="mb-0 mt-2"><?= h($gitPullResult['message'] ?: 'No output returned.') ?></pre>
+            </div></div>
+        <?php endif; ?>
         <div class="col-lg-3 no-print">
             <div class="card"><div class="card-header"><h3 class="card-title">Trips</h3></div><div class="list-group list-group-flush">
                 <?php foreach ($trips as $t): ?><a href="?trip_id=<?= (int)$t['id'] ?>" class="list-group-item <?= $tripId === (int)$t['id'] ? 'active' : '' ?>"><strong><?= h($t['title']) ?></strong><br><small><?= h($t['destination']) ?></small></a><?php endforeach; ?>
