@@ -986,7 +986,17 @@ function day_summary_fields(array $day): array
                 </form>
             </div></div>
 
-            <div class="card mb-3"><div class="card-header"><h3 class="card-title"><i class="ti ti-map-pin me-2"></i>Map: hotels, parking and POI</h3></div><div id="map"></div>
+            <div class="card mb-3"><div class="card-header"><h3 class="card-title"><i class="ti ti-map-pin me-2"></i>Map: hotels, parking and POI</h3></div>
+                <div class="px-3 py-2 border-bottom bg-light text-secondary small">
+                    <?php if (count($visiblePoints) > 1): ?>
+                        <i class="ti ti-route me-1"></i>Route shown for <?= count($visiblePoints) ?> checked locations, sorted by date.
+                    <?php elseif (count($visiblePoints) === 1): ?>
+                        <i class="ti ti-route me-1"></i>Check at least one more location to show the route line.
+                    <?php else: ?>
+                        <i class="ti ti-route me-1"></i>No checked locations are visible on the map.
+                    <?php endif; ?>
+                </div>
+                <div id="map"></div>
                 <div class="card-body no-print"><div class="row g-2">
                     <form method="post" class="row g-2 col-12">
                         <input type="hidden" name="action" value="add_point"><input type="hidden" name="trip_id" value="<?= $tripId ?>">
@@ -1242,6 +1252,7 @@ mapPoints.forEach(p => {
     markers.push(marker);
     markersById[p.id] = marker;
 });
+let routeHalo = null;
 let routeLine = null;
 const routeArrows = L.layerGroup().addTo(map);
 const routeSegments = [];
@@ -1252,17 +1263,25 @@ if (routeLatLngs.length > 1) {
         routeSegments.push(segment);
         curvedRoute.push(...(i === 0 ? segment : segment.slice(1)));
     }
+    routeHalo = L.polyline(curvedRoute, {
+        color: '#ffffff',
+        weight: 9,
+        opacity: 0.95,
+        lineCap: 'round'
+    }).addTo(map);
     routeLine = L.polyline(curvedRoute, {
-        color: '#206bc4',
-        weight: 3,
-        opacity: 0.8,
-        dashArray: '9 7',
+        color: '#d63939',
+        weight: 4,
+        opacity: 0.95,
         lineCap: 'round'
     }).addTo(map);
     drawRouteArrows();
     map.on('zoomend moveend', drawRouteArrows);
 }
 if (markers.length > 1) map.fitBounds(L.featureGroup(markers).getBounds().pad(0.2));
+if (routeHalo) routeHalo.bringToFront();
+if (routeLine) routeLine.bringToFront();
+markers.forEach(marker => marker.bringToFront());
 
 function drawRouteArrows() {
     routeArrows.clearLayers();
@@ -1279,9 +1298,9 @@ function drawRouteArrows() {
             interactive: false,
             icon: L.divIcon({
                 className: 'route-arrow-icon',
-                html: `<span class="route-arrow" style="transform: rotate(${angle}deg)"></span>`,
-                iconSize: [22, 22],
-                iconAnchor: [11, 11]
+                html: `<svg class="route-arrow" viewBox="0 0 24 24" style="transform: rotate(${angle}deg)" aria-hidden="true"><path d="M3 10h12V5l7 7-7 7v-5H3z"></path></svg>`,
+                iconSize: [30, 30],
+                iconAnchor: [15, 15]
             })
         }).addTo(routeArrows);
     });
