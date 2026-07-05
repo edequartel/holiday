@@ -55,6 +55,10 @@
 .calendar-flight-line span {
     font-weight: 700;
 }
+.flight-number-input {
+    max-width: 8rem;
+    min-width: 6rem;
+}
 .fc {
     --fc-border-color: rgba(98, 105, 118, 0.18);
     --fc-button-bg-color: var(--tblr-primary);
