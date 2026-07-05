@@ -86,9 +86,13 @@ if ($action === 'save_ai_point') {
     redirect_to_trip($tripIdPost);
 }
 
-if (in_array($action, ['delete_day','delete_flight','delete_item','delete_point'], true)) {
+if ($action === 'delete_day') {
+    delete_day_with_documents($pdo, (int)$_POST['day_id'], $tripIdPost);
+    redirect_to_trip($tripIdPost);
+}
+
+if (in_array($action, ['delete_flight','delete_item','delete_point'], true)) {
     $map = [
-        'delete_day' => ['itinerary_days', 'day_id'],
         'delete_flight' => ['flights', 'flight_id'],
         'delete_item' => ['packing_items', 'item_id'],
         'delete_point' => ['map_points', 'point_id'],
@@ -162,6 +166,29 @@ function run_git_pull(): array
         'type' => $code === 0 ? 'success' : 'danger',
         'message' => implode("\n", $output),
     ];
+}
+
+function delete_day_with_documents(PDO $pdo, int $dayId, int $tripId): void
+{
+    $stmt = $pdo->prepare('SELECT file_path FROM day_documents WHERE day_id=? AND trip_id=?');
+    $stmt->execute([$dayId, $tripId]);
+    foreach ($stmt->fetchAll() as $document) {
+        delete_uploaded_document_file($document['file_path'] ?? '');
+    }
+
+    $stmt = $pdo->prepare('DELETE FROM itinerary_days WHERE id=? AND trip_id=?');
+    $stmt->execute([$dayId, $tripId]);
+}
+
+function delete_uploaded_document_file(string $relativePath): void
+{
+    $baseDir = realpath(__DIR__ . '/uploads/day-documents');
+    $filePath = realpath(__DIR__ . '/' . $relativePath);
+    $allowedPrefix = $baseDir ? $baseDir . DIRECTORY_SEPARATOR : '';
+
+    if ($baseDir && $filePath && strncmp($filePath, $allowedPrefix, strlen($allowedPrefix)) === 0 && is_file($filePath)) {
+        @unlink($filePath);
+    }
 }
 
 function import_day_pdf(PDO $pdo, int $tripId): array
