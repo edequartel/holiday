@@ -17,6 +17,7 @@ CREATE TABLE itinerary_days (
   details TEXT,
   transport VARCHAR(255),
   hotel VARCHAR(255),
+  url VARCHAR(1000),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -72,6 +73,7 @@ CREATE TABLE day_documents (
   file_path VARCHAR(500) NOT NULL,
   mime_type VARCHAR(100) NOT NULL DEFAULT 'application/pdf',
   file_size INT NOT NULL DEFAULT 0,
+  file_hash CHAR(64) NULL,
   notes TEXT,
   extracted_json JSON NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

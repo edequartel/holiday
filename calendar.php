@@ -1,5 +1,6 @@
 <?php
 require __DIR__ . '/includes/db.php';
+ensure_itinerary_days_table($pdo);
 ensure_day_documents_table($pdo);
 ensure_day_links_table($pdo);
 
@@ -21,9 +22,9 @@ $stmt = $pdo->prepare('SELECT * FROM itinerary_days WHERE trip_id=? ORDER BY day
 $stmt->execute([$tripId]);
 $days = $stmt->fetchAll();
 
-$stmt = $pdo->prepare('SELECT day_id, COUNT(*) AS total FROM day_documents WHERE trip_id=? GROUP BY day_id');
+$stmt = $pdo->prepare('SELECT * FROM day_documents WHERE trip_id=? ORDER BY created_at ASC, id ASC');
 $stmt->execute([$tripId]);
-$documentCounts = day_count_map($stmt->fetchAll());
+$documentCounts = count_unique_documents_by_day($stmt->fetchAll());
 
 $stmt = $pdo->prepare('SELECT day_id, COUNT(*) AS total FROM day_links WHERE trip_id=? GROUP BY day_id');
 $stmt->execute([$tripId]);
@@ -40,6 +41,7 @@ foreach ($days as $day) {
         'extendedProps' => [
             'location' => (string)($day['location'] ?? ''),
             'hotel' => (string)($day['hotel'] ?? ''),
+            'url' => (string)($day['url'] ?? ''),
             'transport' => (string)($day['transport'] ?? ''),
             'time' => calendar_time_from_day($day),
             'details' => short_calendar_text((string)($day['details'] ?? ''), 120),
@@ -152,6 +154,7 @@ function calendar_time_from_day(array $day): string
                                                 <?php if ($day['location']): ?><div class="text-secondary mb-2"><?= h($day['location']) ?></div><?php endif; ?>
                                                 <div class="d-flex flex-wrap gap-1 mb-2">
                                                     <?php if ($day['hotel']): ?><span class="badge bg-green-lt"><?= h($day['hotel']) ?></span><?php endif; ?>
+                                                    <?php if (!empty($day['url'])): ?><span class="badge bg-purple-lt">URL</span><?php endif; ?>
                                                     <?php if ($day['transport']): ?><span class="badge bg-blue-lt"><?= h($day['transport']) ?></span><?php endif; ?>
                                                     <?php if ($documents): ?><span class="badge bg-orange-lt"><?= $documents ?> doc<?= $documents === 1 ? '' : 's' ?></span><?php endif; ?>
                                                     <?php if ($links): ?><span class="badge bg-purple-lt"><?= $links ?> link<?= $links === 1 ? '' : 's' ?></span><?php endif; ?>
@@ -208,6 +211,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const lines = [
                 ['Location', props.location],
                 ['Hotel', props.hotel],
+                ['URL', props.url],
                 ['Transport', props.transport],
                 ['Time', props.time],
                 ['Details', props.details],

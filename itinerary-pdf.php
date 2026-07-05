@@ -1,5 +1,6 @@
 <?php
 require __DIR__ . '/includes/db.php';
+ensure_itinerary_days_table($pdo);
 ensure_day_documents_table($pdo);
 ensure_day_links_table($pdo);
 
@@ -38,7 +39,7 @@ $flights = $stmt->fetchAll();
 
 $stmt = $pdo->prepare('SELECT * FROM day_documents WHERE trip_id=? ORDER BY created_at ASC, id ASC');
 $stmt->execute([$tripId]);
-$documentsByDay = group_by_day($stmt->fetchAll());
+$documentsByDay = group_unique_documents_by_day($stmt->fetchAll());
 
 $stmt = $pdo->prepare('SELECT * FROM day_links WHERE trip_id=? ORDER BY created_at ASC, id ASC');
 $stmt->execute([$tripId]);
@@ -175,6 +176,7 @@ function render_itinerary_pdf_html(array $trip, array $days, array $flights, arr
                             <h2><?= h($day['title'] ?: 'Untitled day') ?></h2>
                             <?php if ($day['location']): ?><div class="muted"><?= h($day['location']) ?></div><?php endif; ?>
                             <?php if ($day['hotel']): ?><span class="pill">Hotel: <?= h($day['hotel']) ?></span><?php endif; ?>
+                            <?php if (!empty($day['url'])): ?><span class="pill">URL: <?= h($day['url']) ?></span><?php endif; ?>
                             <?php if ($day['transport']): ?><span class="pill">Transport: <?= h($day['transport']) ?></span><?php endif; ?>
                             <?php if (trim((string)$day['details']) !== ''): ?><div class="summary"><?= h($day['details']) ?></div><?php endif; ?>
                         </div>

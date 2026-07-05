@@ -2,6 +2,7 @@
 session_start();
 
 require __DIR__ . '/includes/db.php';
+ensure_itinerary_days_table($pdo);
 ensure_map_points_table($pdo);
 ensure_day_documents_table($pdo);
 ensure_day_links_table($pdo);
@@ -53,8 +54,8 @@ if ($action === 'import_day_pdf') {
 }
 
 if ($action === 'add_day') {
-    $stmt = $pdo->prepare('INSERT INTO itinerary_days (trip_id, day_date, location, title, details, transport, hotel) VALUES (?, ?, ?, ?, ?, ?, ?)');
-    $stmt->execute([$tripIdPost, $_POST['day_date'], $_POST['location'], $_POST['title'], $_POST['details'], $_POST['transport'], $_POST['hotel']]);
+    $stmt = $pdo->prepare('INSERT INTO itinerary_days (trip_id, day_date, location, title, details, transport, hotel, url) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    $stmt->execute([$tripIdPost, $_POST['day_date'], $_POST['location'], $_POST['title'], $_POST['details'], $_POST['transport'], $_POST['hotel'], $_POST['url']]);
     redirect_to_trip($tripIdPost);
 }
 
@@ -139,9 +140,7 @@ if ($tripId) {
 
     $stmt = $pdo->prepare('SELECT * FROM day_documents WHERE trip_id=? ORDER BY created_at DESC, id DESC');
     $stmt->execute([$tripId]);
-    foreach ($stmt->fetchAll() as $document) {
-        $documentsByDay[(int)$document['day_id']][] = $document;
-    }
+    $documentsByDay = group_unique_documents_by_day($stmt->fetchAll());
 
     $stmt = $pdo->prepare('SELECT * FROM day_links WHERE trip_id=? ORDER BY created_at DESC, id DESC');
     $stmt->execute([$tripId]);
@@ -437,12 +436,22 @@ function import_day_pdf(PDO $pdo, int $tripId): array
         return ['type' => 'danger', 'message' => 'Only PDF files can be uploaded.'];
     }
 
+    $originalName = basename((string)$upload['name']);
+    $fileSize = (int)$upload['size'];
+    $fileHash = hash_file('sha256', $upload['tmp_name']);
+    if (!is_string($fileHash) || $fileHash === '') {
+        return ['type' => 'danger', 'message' => 'Could not fingerprint the uploaded PDF.'];
+    }
+
+    if (find_duplicate_imported_document($pdo, $tripId, $originalName, $fileSize, $fileHash)) {
+        return ['type' => 'warning', 'message' => 'This PDF was already imported for this trip. No duplicate document or OpenAI import was added.'];
+    }
+
     $uploadDir = __DIR__ . '/uploads/day-documents';
     if (!is_dir($uploadDir) && !mkdir($uploadDir, 0775, true)) {
         return ['type' => 'danger', 'message' => 'Could not create the upload folder.'];
     }
 
-    $originalName = basename((string)$upload['name']);
     $storedName = bin2hex(random_bytes(16)) . '.pdf';
     $relativePath = 'uploads/day-documents/' . $storedName;
     $storedPath = __DIR__ . '/' . $relativePath;
@@ -462,8 +471,15 @@ function import_day_pdf(PDO $pdo, int $tripId): array
             $dayId = find_or_create_imported_day($pdo, $tripId, $itinerary, $existingDay);
             update_day_from_import($pdo, $tripId, $dayId, $itinerary);
             save_imported_map_point($pdo, $tripId, $itinerary, (string)($itinerary['day_date'] ?? $dayDate));
-            insert_day_document($pdo, $tripId, $dayId, $originalName, $storedName, $relativePath, $mimeType, (int)$upload['size'], $extraDetails, $itinerary);
-            $attachedCount++;
+            if (!day_document_exists($pdo, $tripId, $dayId, $originalName, $fileSize, $fileHash)) {
+                insert_day_document($pdo, $tripId, $dayId, $originalName, $storedName, $relativePath, $mimeType, $fileSize, $fileHash, $extraDetails, $itinerary);
+                $attachedCount++;
+            }
+        }
+
+        if ($attachedCount === 0) {
+            @unlink($storedPath);
+            return ['type' => 'warning', 'message' => 'OpenAI analysed the PDF, but all matching document entries already existed. No duplicate information was added.'];
         }
 
         return ['type' => 'success', 'message' => "PDF analysed and divided over {$attachedCount} day(s)."];
@@ -486,9 +502,10 @@ function update_day_from_import(PDO $pdo, int $tripId, int $dayId, array $itiner
     $location = trim((string)$day['location']) ?: trim((string)($itinerary['location'] ?? ''));
     $transport = trim((string)$day['transport']) ?: trim((string)($itinerary['transport'] ?? ''));
     $hotel = trim((string)$day['hotel']) ?: trim((string)($itinerary['hotel'] ?? ''));
+    $url = trim((string)($day['url'] ?? '')) ?: trim((string)($itinerary['url'] ?? $itinerary['website'] ?? ''));
 
-    $stmt = $pdo->prepare('UPDATE itinerary_days SET title=?, location=?, transport=?, hotel=? WHERE id=? AND trip_id=?');
-    $stmt->execute([$title, $location, $transport, $hotel, $dayId, $tripId]);
+    $stmt = $pdo->prepare('UPDATE itinerary_days SET title=?, location=?, transport=?, hotel=?, url=? WHERE id=? AND trip_id=?');
+    $stmt->execute([$title, $location, $transport, $hotel, $url, $dayId, $tripId]);
 }
 
 function normalize_imported_days(array $analysis, string $fallbackDate, ?array $existingDay): array
@@ -545,7 +562,7 @@ function find_or_create_imported_day(PDO $pdo, int $tripId, array $itinerary, ?a
         }
     }
 
-    $stmt = $pdo->prepare('INSERT INTO itinerary_days (trip_id, day_date, location, title, details, transport, hotel) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    $stmt = $pdo->prepare('INSERT INTO itinerary_days (trip_id, day_date, location, title, details, transport, hotel, url) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
     $stmt->execute([
         $tripId,
         $dayDate ?: date('Y-m-d'),
@@ -554,14 +571,31 @@ function find_or_create_imported_day(PDO $pdo, int $tripId, array $itinerary, ?a
         '',
         $itinerary['transport'] ?? '',
         $itinerary['hotel'] ?? '',
+        $itinerary['url'] ?? $itinerary['website'] ?? '',
     ]);
 
     return (int)$pdo->lastInsertId();
 }
 
-function insert_day_document(PDO $pdo, int $tripId, int $dayId, string $originalName, string $storedName, string $relativePath, string $mimeType, int $fileSize, string $notes, array $itinerary): void
+function find_duplicate_imported_document(PDO $pdo, int $tripId, string $originalName, int $fileSize, string $fileHash): bool
 {
-    $stmt = $pdo->prepare('INSERT INTO day_documents (trip_id, day_id, original_name, stored_name, file_path, mime_type, file_size, notes, extracted_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    $stmt = $pdo->prepare('SELECT id FROM day_documents WHERE trip_id=? AND (file_hash=? OR (file_hash IS NULL AND original_name=? AND file_size=?)) LIMIT 1');
+    $stmt->execute([$tripId, $fileHash, $originalName, $fileSize]);
+
+    return (bool)$stmt->fetchColumn();
+}
+
+function day_document_exists(PDO $pdo, int $tripId, int $dayId, string $originalName, int $fileSize, string $fileHash): bool
+{
+    $stmt = $pdo->prepare('SELECT id FROM day_documents WHERE trip_id=? AND day_id=? AND (file_hash=? OR (file_hash IS NULL AND original_name=? AND file_size=?)) LIMIT 1');
+    $stmt->execute([$tripId, $dayId, $fileHash, $originalName, $fileSize]);
+
+    return (bool)$stmt->fetchColumn();
+}
+
+function insert_day_document(PDO $pdo, int $tripId, int $dayId, string $originalName, string $storedName, string $relativePath, string $mimeType, int $fileSize, string $fileHash, string $notes, array $itinerary): void
+{
+    $stmt = $pdo->prepare('INSERT INTO day_documents (trip_id, day_id, original_name, stored_name, file_path, mime_type, file_size, file_hash, notes, extracted_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     $stmt->execute([
         $tripId,
         $dayId,
@@ -570,6 +604,7 @@ function insert_day_document(PDO $pdo, int $tripId, int $dayId, string $original
         $relativePath,
         $mimeType,
         $fileSize,
+        $fileHash,
         $notes,
         json_encode($itinerary, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
     ]);
@@ -598,7 +633,7 @@ function extract_itinerary_from_pdf(string $filePath, string $filename, array $t
         ($existingDay ? "Existing itinerary day title: " . ($existingDay['title'] ?? '') . "\nExisting location: " . ($existingDay['location'] ?? '') . "\nExisting hotel: " . ($existingDay['hotel'] ?? '') . "\n" : '') .
         "Extra details from user: {$extraDetails}\n\n" .
         "Return strict JSON only, no markdown. Format:\n" .
-        "{\"days\":[{\"day_date\":\"YYYY-MM-DD\",\"title\":\"short day title\",\"location\":\"city or place\",\"hotel\":\"hotel or accommodation name if present\",\"transport\":\"transport summary if relevant\",\"details\":\"one short sentence only\",\"arrival_date\":\"YYYY-MM-DD or original text\",\"departure_date\":\"YYYY-MM-DD or original text\",\"nights\":\"number or text\",\"check_in\":\"short time/window\",\"check_out\":\"short time/window\",\"breakfast\":\"short included/not included/time\",\"address\":\"full address\",\"latitude\":\"decimal latitude for the main location\",\"longitude\":\"decimal longitude for the main location\",\"confirmation\":\"booking/ticket number\",\"guest_name\":\"name if present\",\"room\":\"room, seat, ticket category, or unit\",\"payment\":\"short total/due/tax detail only if essential\",\"cancellation\":\"short deadline only if essential\",\"contact\":\"phone/email/contact\",\"parking\":\"short parking/access note\",\"important_notes\":[\"maximum 4 short essential notes\"]}]}\n" .
+        "{\"days\":[{\"day_date\":\"YYYY-MM-DD\",\"title\":\"short day title\",\"location\":\"city or place\",\"hotel\":\"hotel or accommodation name if present\",\"url\":\"official hotel, booking, ticket, restaurant, or activity URL if present\",\"transport\":\"transport summary if relevant\",\"details\":\"one short sentence only\",\"arrival_date\":\"YYYY-MM-DD or original text\",\"departure_date\":\"YYYY-MM-DD or original text\",\"nights\":\"number or text\",\"check_in\":\"short time/window\",\"check_out\":\"short time/window\",\"breakfast\":\"short included/not included/time\",\"address\":\"full address\",\"latitude\":\"decimal latitude for the main location\",\"longitude\":\"decimal longitude for the main location\",\"confirmation\":\"booking/ticket number\",\"guest_name\":\"name if present\",\"room\":\"room, seat, ticket category, or unit\",\"payment\":\"short total/due/tax detail only if essential\",\"cancellation\":\"short deadline only if essential\",\"contact\":\"phone/email/contact\",\"parking\":\"short parking/access note\",\"important_notes\":[\"maximum 4 short essential notes\"]}]}\n" .
         "Create one days[] item per hotel stay, activity date, transfer date, or ticket date. Keep all fields concise. Do not include long policy text. Add real approximate latitude and longitude for the hotel, accommodation, activity venue, restaurant, station, airport, or main booked location when you can identify it. If a field is missing, use an empty string or empty array.";
 
     $payload = [
@@ -765,6 +800,7 @@ function booking_detail_groups(array $itinerary): array
             'Hotel' => $itinerary['hotel'] ?? '',
             'Address' => $itinerary['address'] ?? '',
             'Room' => $itinerary['room'] ?? '',
+            'URL' => $itinerary['url'] ?? $itinerary['website'] ?? '',
         ],
         'Dates' => [
             'Arrival' => $itinerary['arrival_date'] ?? '',
@@ -880,6 +916,7 @@ function day_summary_fields(array $day): array
         'Location' => $day['location'] ?? '',
         'Hotel' => $day['hotel'] ?? '',
         'Transport' => $day['transport'] ?? '',
+        'URL' => $day['url'] ?? '',
     ];
 }
 ?>
@@ -1108,7 +1145,7 @@ document.addEventListener('submit', event => {
             </tbody></table></div><form method="post" class="card-body no-print row g-2"><input type="hidden" name="action" value="add_flight"><input type="hidden" name="trip_id" value="<?= $tripId ?>"><div class="col-md-2"><input name="flight_date" type="date" class="form-control"></div><div class="col-md-2"><input name="airline" class="form-control" placeholder="Airline"></div><div class="col-md-2"><input name="flight_number" class="form-control" placeholder="Flight no."></div><div class="col-md-2"><input name="departure_airport" class="form-control" placeholder="From"></div><div class="col-md-2"><input name="arrival_airport" class="form-control" placeholder="To"></div><div class="col-md-1"><input name="departure_time" type="time" class="form-control"></div><div class="col-md-1"><input name="arrival_time" type="time" class="form-control"></div><div class="col-12 col-md-10"><input name="notes" class="form-control" placeholder="Notes"></div><div class="col-12 col-md-2"><button class="btn btn-primary w-100">Add flight</button></div></form></div>
 
             <div class="card mb-3"><div class="card-header"><h3 class="card-title"><i class="ti ti-calendar-event me-2"></i>Itinerary</h3></div><div class="list-group list-group-flush">
-                <?php foreach ($days as $d): $hasDocuments = !empty($documentsByDay[(int)$d['id']]); ?><div id="day-<?= (int)$d['id'] ?>" class="list-group-item itinerary-day"><div class="row g-2"><div class="col-12 col-md"><strong><?= h($d['day_date']) ?> · <?= h($d['title']) ?></strong><div class="text-secondary"><?= h($d['location']) ?></div><?php if (!$hasDocuments && trim((string)$d['details']) !== ''): ?><p class="mt-2"><?= nl2br(h($d['details'])) ?></p><?php endif; ?><span class="badge bg-blue-lt">Transport: <?= h($d['transport']) ?></span> <span class="badge bg-green-lt">Hotel: <?= h($d['hotel']) ?></span>
+                <?php foreach ($days as $d): $hasDocuments = !empty($documentsByDay[(int)$d['id']]); ?><div id="day-<?= (int)$d['id'] ?>" class="list-group-item itinerary-day"><div class="row g-2"><div class="col-12 col-md"><strong><?= h($d['day_date']) ?> · <?= h($d['title']) ?></strong><div class="text-secondary"><?= h($d['location']) ?></div><?php if (!$hasDocuments && trim((string)$d['details']) !== ''): ?><p class="mt-2"><?= nl2br(h($d['details'])) ?></p><?php endif; ?><span class="badge bg-blue-lt">Transport: <?= h($d['transport']) ?></span> <span class="badge bg-green-lt">Hotel: <?= h($d['hotel']) ?></span><?php if (!empty($d['url'])): ?> <a class="badge bg-purple-lt text-decoration-none" href="<?= h($d['url']) ?>" target="_blank" rel="noopener">URL</a><?php endif; ?>
                     <?php if (!empty($documentsByDay[(int)$d['id']])): ?><div class="mt-3 no-print">
                         <?php foreach ($documentsByDay[(int)$d['id']] as $document): $bookingDetails = decoded_booking_details($document); ?>
                             <div class="border rounded p-3 mb-2">
@@ -1231,7 +1268,7 @@ document.addEventListener('submit', event => {
                     </form>
                 </div><div class="col-12 col-md-auto no-print"><form method="post"><input type="hidden" name="action" value="delete_day"><input type="hidden" name="trip_id" value="<?= $tripId ?>"><input type="hidden" name="day_id" value="<?= (int)$d['id'] ?>"><button class="btn btn-sm btn-outline-danger app-delete-day"><i class="ti ti-trash"></i></button></form></div></div></div><?php endforeach; ?>
             </div><div class="card-body no-print">
-                <form method="post" class="row g-2"><input type="hidden" name="action" value="add_day"><input type="hidden" name="trip_id" value="<?= $tripId ?>"><div class="col-md-2"><input name="day_date" type="date" class="form-control" required></div><div class="col-md-3"><input name="location" class="form-control" placeholder="Location"></div><div class="col-md-4"><input name="title" class="form-control" placeholder="Day title"></div><div class="col-md-3"><input name="hotel" class="form-control" placeholder="Hotel"></div><div class="col-md-4"><input name="transport" class="form-control" placeholder="Transport"></div><div class="col-md-8"><textarea name="details" class="form-control" rows="2" placeholder="Plans, sights, restaurants, notes"></textarea></div><div class="col-12"><button class="btn btn-primary">Add day</button></div></form>
+                <form method="post" class="row g-2"><input type="hidden" name="action" value="add_day"><input type="hidden" name="trip_id" value="<?= $tripId ?>"><div class="col-md-2"><input name="day_date" type="date" class="form-control" required></div><div class="col-md-3"><input name="location" class="form-control" placeholder="Location"></div><div class="col-md-4"><input name="title" class="form-control" placeholder="Day title"></div><div class="col-md-3"><input name="hotel" class="form-control" placeholder="Hotel"></div><div class="col-md-4"><input name="transport" class="form-control" placeholder="Transport"></div><div class="col-md-8"><input name="url" type="url" class="form-control" placeholder="Hotel or activity URL"></div><div class="col-md-8"><textarea name="details" class="form-control" rows="2" placeholder="Plans, sights, restaurants, notes"></textarea></div><div class="col-12"><button class="btn btn-primary">Add day</button></div></form>
                 <?php if ($days): ?>
                     <hr>
                     <form method="post" class="row g-2 align-items-end">

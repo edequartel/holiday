@@ -37,6 +37,14 @@ function ensure_map_points_table(PDO $pdo): void
     }
 }
 
+function ensure_itinerary_days_table(PDO $pdo): void
+{
+    $columns = $pdo->query("SHOW COLUMNS FROM itinerary_days LIKE 'url'")->fetchAll();
+    if (!$columns) {
+        $pdo->exec('ALTER TABLE itinerary_days ADD COLUMN url VARCHAR(1000) NULL AFTER hotel');
+    }
+}
+
 function ensure_day_documents_table(PDO $pdo): void
 {
     $pdo->exec("
@@ -49,6 +57,7 @@ function ensure_day_documents_table(PDO $pdo): void
           file_path VARCHAR(500) NOT NULL,
           mime_type VARCHAR(100) NOT NULL DEFAULT 'application/pdf',
           file_size INT NOT NULL DEFAULT 0,
+          file_hash CHAR(64) NULL,
           notes TEXT,
           extracted_json JSON NULL,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -60,6 +69,11 @@ function ensure_day_documents_table(PDO $pdo): void
     $columns = $pdo->query("SHOW COLUMNS FROM day_documents LIKE 'extracted_json'")->fetchAll();
     if (!$columns) {
         $pdo->exec('ALTER TABLE day_documents ADD COLUMN extracted_json JSON NULL AFTER notes');
+    }
+
+    $columns = $pdo->query("SHOW COLUMNS FROM day_documents LIKE 'file_hash'")->fetchAll();
+    if (!$columns) {
+        $pdo->exec('ALTER TABLE day_documents ADD COLUMN file_hash CHAR(64) NULL AFTER file_size');
     }
 }
 
@@ -84,4 +98,43 @@ function ensure_day_links_table(PDO $pdo): void
     if (!$columns) {
         $pdo->exec('ALTER TABLE day_links ADD COLUMN extracted_json JSON NULL AFTER notes');
     }
+}
+
+function document_dedupe_key(array $document): string
+{
+    $hash = trim((string)($document['file_hash'] ?? ''));
+    if ($hash !== '') {
+        return 'hash:' . $hash;
+    }
+
+    return 'legacy:' . strtolower(trim((string)($document['original_name'] ?? ''))) .
+        '|' . (int)($document['file_size'] ?? 0) .
+        '|' . hash('sha256', (string)($document['extracted_json'] ?? ''));
+}
+
+function group_unique_documents_by_day(array $documents): array
+{
+    $grouped = [];
+    $seen = [];
+    foreach ($documents as $document) {
+        $dayId = (int)($document['day_id'] ?? 0);
+        $key = $dayId . '|' . document_dedupe_key($document);
+        if (isset($seen[$key])) {
+            continue;
+        }
+        $seen[$key] = true;
+        $grouped[$dayId][] = $document;
+    }
+
+    return $grouped;
+}
+
+function count_unique_documents_by_day(array $documents): array
+{
+    $counts = [];
+    foreach (group_unique_documents_by_day($documents) as $dayId => $items) {
+        $counts[(int)$dayId] = count($items);
+    }
+
+    return $counts;
 }
