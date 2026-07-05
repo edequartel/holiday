@@ -40,6 +40,21 @@
 .calendar-event-line span {
     font-weight: 600;
 }
+.calendar-flight-event {
+    --fc-event-bg-color: #eef2ff;
+    --fc-event-border-color: #c7d2fe;
+    --fc-event-text-color: #3730a3;
+}
+.calendar-flight-line {
+    border-left: 3px solid #4f46e5;
+    color: var(--tblr-body-color);
+    font-size: 0.82rem;
+    line-height: 1.35;
+    padding-left: 0.5rem;
+}
+.calendar-flight-line span {
+    font-weight: 700;
+}
 .fc {
     --fc-border-color: rgba(98, 105, 118, 0.18);
     --fc-button-bg-color: var(--tblr-primary);

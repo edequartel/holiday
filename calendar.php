@@ -22,6 +22,12 @@ $stmt = $pdo->prepare('SELECT * FROM itinerary_days WHERE trip_id=? ORDER BY day
 $stmt->execute([$tripId]);
 $days = $stmt->fetchAll();
 
+$stmt = $pdo->prepare('SELECT * FROM flights WHERE trip_id=? ORDER BY flight_date ASC, departure_time ASC, id ASC');
+$stmt->execute([$tripId]);
+$flights = $stmt->fetchAll();
+$flightsByDate = flights_by_date($flights);
+$dayDateSet = array_fill_keys(array_map(fn($day) => (string)$day['day_date'], $days), true);
+
 $stmt = $pdo->prepare('SELECT * FROM day_documents WHERE trip_id=? ORDER BY created_at ASC, id ASC');
 $stmt->execute([$tripId]);
 $documentCounts = count_unique_documents_by_day($stmt->fetchAll());
@@ -51,8 +57,48 @@ foreach ($days as $day) {
     ];
 }
 
+foreach ($flights as $flight) {
+    if (trim((string)($flight['flight_date'] ?? '')) === '') {
+        continue;
+    }
+
+    $flightTitle = trim(implode(' ', array_filter([
+        $flight['airline'] ?? '',
+        $flight['flight_number'] ?? '',
+    ]))) ?: 'Flight';
+
+    $events[] = [
+        'id' => 'flight-' . (int)$flight['id'],
+        'title' => $flightTitle,
+        'start' => (string)$flight['flight_date'],
+        'allDay' => true,
+        'url' => 'index.php?trip_id=' . $tripId,
+        'classNames' => ['calendar-flight-event'],
+        'extendedProps' => [
+            'type' => 'Flight',
+            'route' => trim((string)($flight['departure_airport'] ?? '') . ' → ' . (string)($flight['arrival_airport'] ?? '')),
+            'time' => flight_time_range($flight),
+            'details' => short_calendar_text((string)($flight['notes'] ?? ''), 100),
+        ],
+    ];
+}
+
 $eventsJson = json_encode($events, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
 $initialDate = $trip['start_date'] ?: ($days[0]['day_date'] ?? date('Y-m-d'));
+
+function flights_by_date(array $flights): array
+{
+    $grouped = [];
+    foreach ($flights as $flight) {
+        $date = trim((string)($flight['flight_date'] ?? ''));
+        if ($date === '') {
+            continue;
+        }
+        $grouped[$date][] = $flight;
+    }
+
+    return $grouped;
+}
 
 function day_count_map(array $rows): array
 {
@@ -86,6 +132,25 @@ function calendar_time_from_day(array $day): string
 
     return '';
 }
+
+function flight_time_range(array $flight): string
+{
+    $departure = trim((string)($flight['departure_time'] ?? ''));
+    $arrival = trim((string)($flight['arrival_time'] ?? ''));
+    if ($departure !== '' && $arrival !== '') {
+        return $departure . ' - ' . $arrival;
+    }
+
+    return $departure ?: $arrival;
+}
+
+function flight_title(array $flight): string
+{
+    return trim(implode(' ', array_filter([
+        $flight['airline'] ?? '',
+        $flight['flight_number'] ?? '',
+    ]))) ?: 'Flight';
+}
 ?>
 <!doctype html>
 <html lang="en">
@@ -95,7 +160,7 @@ function calendar_time_from_day(array $day): string
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link href="https://cdn.jsdelivr.net/npm/@tabler/core@1.0.0-beta20/dist/css/tabler.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css" rel="stylesheet">
-    <link href="assets/app.css" rel="stylesheet">
+    <link href="assets/app.css?v=<?= filemtime(__DIR__ . '/assets/app.css') ?>" rel="stylesheet">
 </head>
 <body>
 <div class="page"><div class="page-wrapper">
@@ -140,6 +205,7 @@ function calendar_time_from_day(array $day): string
                                     $dayId = (int)$day['id'];
                                     $documents = $documentCounts[$dayId] ?? 0;
                                     $links = $linkCounts[$dayId] ?? 0;
+                                    $dayFlights = $flightsByDate[(string)$day['day_date']] ?? [];
                                     ?>
                                     <div class="col-sm-6 col-lg-4">
                                         <a class="card card-sm calendar-day-card text-reset text-decoration-none" href="index.php?trip_id=<?= (int)$tripId ?>#day-<?= $dayId ?>">
@@ -160,12 +226,42 @@ function calendar_time_from_day(array $day): string
                                                     <?php if ($links): ?><span class="badge bg-purple-lt"><?= $links ?> link<?= $links === 1 ? '' : 's' ?></span><?php endif; ?>
                                                 </div>
                                                 <?php if (trim((string)$day['details']) !== ''): ?><div class="small text-secondary"><?= h(short_calendar_text((string)$day['details'])) ?></div><?php endif; ?>
+                                                <?php foreach ($dayFlights as $flight): ?>
+                                                    <div class="calendar-flight-line mt-2">
+                                                        <span>Flight:</span> <?= h(flight_title($flight)) ?><br>
+                                                        <span>Route:</span> <?= h(trim((string)$flight['departure_airport'] . ' → ' . (string)$flight['arrival_airport'])) ?>
+                                                        <?php if (flight_time_range($flight)): ?><br><span>Time:</span> <?= h(flight_time_range($flight)) ?><?php endif; ?>
+                                                    </div>
+                                                <?php endforeach; ?>
                                             </div>
                                         </a>
                                     </div>
                                 <?php endforeach; ?>
-                                <?php if (!$days): ?>
-                                    <div class="col-12"><div class="empty"><div class="empty-icon"><i class="ti ti-calendar-off"></i></div><p class="empty-title">No itinerary days yet</p></div></div>
+                                <?php foreach ($flightsByDate as $date => $dateFlights): ?>
+                                    <?php if (isset($dayDateSet[$date])) continue; ?>
+                                    <div class="col-sm-6 col-lg-4">
+                                        <a class="card card-sm calendar-day-card text-reset text-decoration-none" href="index.php?trip_id=<?= (int)$tripId ?>">
+                                            <div class="card-body">
+                                                <div class="d-flex justify-content-between gap-2 align-items-start">
+                                                    <div>
+                                                        <div class="text-secondary small"><?= h($date) ?></div>
+                                                        <h3 class="h4 mb-1">Flight day</h3>
+                                                    </div>
+                                                    <span class="badge bg-indigo-lt"><?= h(date('D', strtotime($date))) ?></span>
+                                                </div>
+                                                <?php foreach ($dateFlights as $flight): ?>
+                                                    <div class="calendar-flight-line mt-2">
+                                                        <span>Flight:</span> <?= h(flight_title($flight)) ?><br>
+                                                        <span>Route:</span> <?= h(trim((string)$flight['departure_airport'] . ' → ' . (string)$flight['arrival_airport'])) ?>
+                                                        <?php if (flight_time_range($flight)): ?><br><span>Time:</span> <?= h(flight_time_range($flight)) ?><?php endif; ?>
+                                                    </div>
+                                                <?php endforeach; ?>
+                                            </div>
+                                        </a>
+                                    </div>
+                                <?php endforeach; ?>
+                                <?php if (!$days && !$flights): ?>
+                                    <div class="col-12"><div class="empty"><div class="empty-icon"><i class="ti ti-calendar-off"></i></div><p class="empty-title">No itinerary days or flights yet</p></div></div>
                                 <?php endif; ?>
                             </div>
                         </div>
@@ -209,6 +305,8 @@ document.addEventListener('DOMContentLoaded', () => {
         eventContent(info) {
             const props = info.event.extendedProps;
             const lines = [
+                ['Type', props.type],
+                ['Route', props.route],
                 ['Location', props.location],
                 ['Hotel', props.hotel],
                 ['URL', props.url],
