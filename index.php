@@ -12,8 +12,10 @@ const HOLIDAY_GIT_REMOTE = 'https://github.com/edequartel/holiday.git';
 $action = $_POST['action'] ?? null;
 $gitPullResult = $_SESSION['git_pull_result'] ?? null;
 $documentImportResult = $_SESSION['document_import_result'] ?? null;
+$flightImportResult = $_SESSION['flight_import_result'] ?? null;
 unset($_SESSION['git_pull_result']);
 unset($_SESSION['document_import_result']);
+unset($_SESSION['flight_import_result']);
 
 if ($action === 'git_pull') {
     $_SESSION['git_pull_result'] = run_git_pull();
@@ -50,6 +52,11 @@ if ($action === 'update_trip') {
 
 if ($action === 'import_day_pdf') {
     $_SESSION['document_import_result'] = import_day_pdf($pdo, $tripIdPost);
+    redirect_to_trip($tripIdPost);
+}
+
+if ($action === 'import_flight_pdf') {
+    $_SESSION['flight_import_result'] = import_flight_pdf($pdo, $tripIdPost);
     redirect_to_trip($tripIdPost);
 }
 
@@ -586,6 +593,231 @@ function import_day_pdf(PDO $pdo, int $tripId): array
     }
 }
 
+function import_flight_pdf(PDO $pdo, int $tripId): array
+{
+    if ($tripId <= 0) {
+        return ['type' => 'danger', 'message' => 'Choose a trip before uploading a flight PDF.'];
+    }
+
+    $stmt = $pdo->prepare('SELECT * FROM trips WHERE id=?');
+    $stmt->execute([$tripId]);
+    $trip = $stmt->fetch();
+    if (!$trip) {
+        return ['type' => 'danger', 'message' => 'Trip not found.'];
+    }
+
+    $upload = $_FILES['flight_pdf'] ?? null;
+    if (!$upload || (int)$upload['error'] !== UPLOAD_ERR_OK) {
+        return ['type' => 'danger', 'message' => 'Flight PDF upload failed.'];
+    }
+
+    if ((int)$upload['size'] > 20 * 1024 * 1024) {
+        return ['type' => 'danger', 'message' => 'Flight PDF is too large. Maximum size is 20 MB.'];
+    }
+
+    $finfo = new finfo(FILEINFO_MIME_TYPE);
+    $mimeType = $finfo->file($upload['tmp_name']) ?: '';
+    if ($mimeType !== 'application/pdf') {
+        return ['type' => 'danger', 'message' => 'Only PDF files can be uploaded for flight import.'];
+    }
+
+    $originalName = basename((string)$upload['name']);
+    $extraDetails = trim($_POST['flight_extra_details'] ?? '');
+
+    try {
+        $analysis = extract_flights_from_pdf($upload['tmp_name'], $originalName, $trip, $extraDetails);
+        $flights = normalize_imported_flights($analysis);
+        if (!$flights) {
+            return ['type' => 'warning', 'message' => 'OpenAI analysed the PDF, but no flights were found.'];
+        }
+
+        $inserted = 0;
+        $skipped = 0;
+        foreach ($flights as $flight) {
+            if (flight_exists($pdo, $tripId, $flight)) {
+                $skipped++;
+                continue;
+            }
+
+            insert_imported_flight($pdo, $tripId, $flight, $originalName);
+            $inserted++;
+        }
+
+        if ($inserted === 0) {
+            return ['type' => 'warning', 'message' => "OpenAI found {$skipped} flight(s), but they already exist. No duplicate flights were added."];
+        }
+
+        $message = "Flight PDF analysed and {$inserted} flight(s) added.";
+        if ($skipped > 0) {
+            $message .= " {$skipped} duplicate flight(s) skipped.";
+        }
+
+        return ['type' => 'success', 'message' => $message];
+    } catch (Throwable $e) {
+        return ['type' => 'danger', 'message' => 'OpenAI could not read this flight PDF: ' . $e->getMessage()];
+    }
+}
+
+function extract_flights_from_pdf(string $filePath, string $filename, array $trip, string $extraDetails): array
+{
+    $config = holiday_config();
+    $apiKey = $config['openai_api_key'] ?? '';
+    $model = $config['openai_model'] ?? 'gpt-5.5';
+
+    if ($apiKey === '' || $apiKey === 'YOUR_OPENAI_API_KEY') {
+        throw new RuntimeException('OpenAI API key is missing in the private secrets file.');
+    }
+
+    $fileData = file_get_contents($filePath);
+    if ($fileData === false) {
+        throw new RuntimeException('Could not read the uploaded flight PDF.');
+    }
+
+    $prompt = "Read this flight booking, boarding pass, airline itinerary, or travel agency PDF. Extract every flight segment as a separate flight.\n" .
+        "Trip: " . ($trip['title'] ?? '') . "\n" .
+        "Destination: " . ($trip['destination'] ?? '') . "\n" .
+        "Trip travel dates: " . ($trip['start_date'] ?? '') . " to " . ($trip['end_date'] ?? '') . "\n" .
+        "Extra details from user: {$extraDetails}\n\n" .
+        "Return strict JSON only, no markdown. Format:\n" .
+        "{\"flights\":[{\"flight_date\":\"YYYY-MM-DD\",\"airline\":\"airline name\",\"flight_number\":\"flight number like KL743\",\"departure_airport\":\"airport name or IATA code\",\"arrival_airport\":\"airport name or IATA code\",\"departure_time\":\"HH:MM local time if known\",\"arrival_time\":\"HH:MM local time if known\",\"notes\":\"short essential notes: terminal, booking reference, seat, baggage, check-in, operated by, passenger if useful\"}]}\n" .
+        "Use the departure date as flight_date. If a field is missing, use an empty string. Keep notes short and practical.";
+
+    $payload = [
+        'model' => $model,
+        'input' => [[
+            'role' => 'user',
+            'content' => [
+                [
+                    'type' => 'input_file',
+                    'filename' => $filename,
+                    'file_data' => 'data:application/pdf;base64,' . base64_encode($fileData),
+                ],
+                [
+                    'type' => 'input_text',
+                    'text' => $prompt,
+                ],
+            ],
+        ]],
+    ];
+
+    $ch = curl_init('https://api.openai.com/v1/responses');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST => true,
+        CURLOPT_HTTPHEADER => [
+            'Content-Type: application/json',
+            'Authorization: Bearer ' . $apiKey,
+        ],
+        CURLOPT_POSTFIELDS => json_encode($payload),
+        CURLOPT_TIMEOUT => 120,
+    ]);
+
+    $response = curl_exec($ch);
+    $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $error = curl_error($ch);
+    curl_close($ch);
+
+    if ($response === false || $status < 200 || $status >= 300) {
+        throw new RuntimeException($error ?: (string)$response);
+    }
+
+    $data = json_decode($response, true);
+    if (!is_array($data)) {
+        throw new RuntimeException('OpenAI returned an unreadable response.');
+    }
+
+    $text = response_output_text($data);
+    if (!$text) {
+        throw new RuntimeException('No text returned by OpenAI.');
+    }
+
+    $text = trim($text);
+    $text = preg_replace('/^```json\s*|\s*```$/', '', $text);
+    $decoded = json_decode($text, true);
+    if (!is_array($decoded)) {
+        throw new RuntimeException('OpenAI did not return valid JSON.');
+    }
+
+    return $decoded;
+}
+
+function normalize_imported_flights(array $analysis): array
+{
+    $items = isset($analysis['flights']) && is_array($analysis['flights']) ? $analysis['flights'] : [$analysis];
+    $flights = [];
+
+    foreach ($items as $item) {
+        if (!is_array($item)) {
+            continue;
+        }
+
+        $flightNumber = trim((string)($item['flight_number'] ?? ''));
+        $departureAirport = trim((string)($item['departure_airport'] ?? ''));
+        $arrivalAirport = trim((string)($item['arrival_airport'] ?? ''));
+        if ($flightNumber === '' && $departureAirport === '' && $arrivalAirport === '') {
+            continue;
+        }
+
+        $flights[] = [
+            'flight_date' => normalize_imported_day_date(trim((string)($item['flight_date'] ?? $item['departure_date'] ?? ''))),
+            'airline' => trim((string)($item['airline'] ?? '')),
+            'flight_number' => $flightNumber,
+            'departure_airport' => $departureAirport,
+            'arrival_airport' => $arrivalAirport,
+            'departure_time' => normalize_imported_time(trim((string)($item['departure_time'] ?? ''))),
+            'arrival_time' => normalize_imported_time(trim((string)($item['arrival_time'] ?? ''))),
+            'notes' => trim((string)($item['notes'] ?? '')),
+        ];
+    }
+
+    return $flights;
+}
+
+function normalize_imported_time(string $value): string
+{
+    if (preg_match('/\b([01]?\d|2[0-3]):([0-5]\d)\b/', $value, $matches)) {
+        return sprintf('%02d:%02d', (int)$matches[1], (int)$matches[2]);
+    }
+
+    return '';
+}
+
+function flight_exists(PDO $pdo, int $tripId, array $flight): bool
+{
+    $stmt = $pdo->prepare('SELECT id FROM flights WHERE trip_id=? AND COALESCE(flight_date, "")=? AND flight_number=? AND departure_airport=? AND arrival_airport=? LIMIT 1');
+    $stmt->execute([
+        $tripId,
+        $flight['flight_date'] ?? '',
+        $flight['flight_number'] ?? '',
+        $flight['departure_airport'] ?? '',
+        $flight['arrival_airport'] ?? '',
+    ]);
+
+    return (bool)$stmt->fetchColumn();
+}
+
+function insert_imported_flight(PDO $pdo, int $tripId, array $flight, string $sourceName): void
+{
+    $notes = trim((string)($flight['notes'] ?? ''));
+    $notes = trim(implode("\n", array_filter([
+        $notes,
+        $sourceName !== '' ? 'Imported from: ' . $sourceName : '',
+    ])));
+
+    $stmt = $pdo->prepare('INSERT INTO flights (trip_id, flight_date, airline, flight_number, departure_airport, arrival_airport, departure_time, arrival_time, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    $stmt->execute([
+        $tripId,
+        ($flight['flight_date'] ?? '') ?: null,
+        $flight['airline'] ?? '',
+        $flight['flight_number'] ?? '',
+        $flight['departure_airport'] ?? '',
+        $flight['arrival_airport'] ?? '',
+        ($flight['departure_time'] ?? '') ?: null,
+        ($flight['arrival_time'] ?? '') ?: null,
+        $notes,
+    ]);
+}
+
 function update_day_from_import(PDO $pdo, int $tripId, int $dayId, array $itinerary): void
 {
     $stmt = $pdo->prepare('SELECT * FROM itinerary_days WHERE id=? AND trip_id=?');
@@ -1053,12 +1285,13 @@ document.addEventListener('submit', event => {
     if (!(form instanceof HTMLFormElement)) return;
 
     const action = form.querySelector('input[name="action"]')?.value;
-    if (!['import_day_pdf', 'add_day_link', 'cleanup_duplicate_documents'].includes(action)) return;
+    if (!['import_day_pdf', 'import_flight_pdf', 'add_day_link', 'cleanup_duplicate_documents'].includes(action)) return;
     if (form.dataset.openaiSubmitting === '1') return;
 
     event.preventDefault();
     const messages = {
         import_day_pdf: 'Reading the document and dividing details by day...',
+        import_flight_pdf: 'Reading the flight PDF and extracting flight segments...',
         add_day_link: 'Reading the website and extracting useful day details...',
         cleanup_duplicate_documents: 'Checking uploaded documents and removing duplicates...'
     };
@@ -1100,6 +1333,12 @@ document.addEventListener('submit', event => {
             <div class="col-12 no-print"><div class="alert alert-<?= h($documentImportResult['type']) ?> mb-0">
                 <strong>PDF itinerary import</strong>
                 <div class="mt-2"><?= nl2br(h($documentImportResult['message'])) ?></div>
+            </div></div>
+        <?php endif; ?>
+        <?php if ($flightImportResult): ?>
+            <div class="col-12 no-print"><div class="alert alert-<?= h($flightImportResult['type']) ?> mb-0">
+                <strong>PDF flight import</strong>
+                <div class="mt-2"><?= nl2br(h($flightImportResult['message'])) ?></div>
             </div></div>
         <?php endif; ?>
         <div class="col-lg-3 no-print app-sidebar">
@@ -1249,7 +1488,7 @@ document.addEventListener('submit', event => {
 
             <div class="card mb-3"><div class="card-header"><h3 class="card-title"><i class="ti ti-plane me-2"></i>Flights</h3></div><div class="table-responsive"><table class="table table-vcenter"><thead><tr><th>Date</th><th>Flight</th><th>Route</th><th>Time</th><th class="no-print"></th></tr></thead><tbody>
                 <?php foreach ($flights as $f): ?><tr><td><?= h($f['flight_date']) ?></td><td><strong><?= h($f['airline']) ?></strong><br><span class="text-secondary"><?= h($f['flight_number']) ?></span></td><td><?= h($f['departure_airport']) ?> → <?= h($f['arrival_airport']) ?></td><td><?= h($f['departure_time']) ?> - <?= h($f['arrival_time']) ?></td><td class="no-print"><form method="post"><input type="hidden" name="action" value="delete_flight"><input type="hidden" name="trip_id" value="<?= $tripId ?>"><input type="hidden" name="flight_id" value="<?= (int)$f['id'] ?>"><button class="btn btn-sm btn-outline-danger"><i class="ti ti-trash"></i></button></form></td></tr><?php endforeach; ?>
-            </tbody></table></div><form method="post" class="card-body no-print row g-2"><input type="hidden" name="action" value="add_flight"><input type="hidden" name="trip_id" value="<?= $tripId ?>"><div class="col-md-2"><input name="flight_date" type="date" class="form-control"></div><div class="col-md-2"><input name="airline" class="form-control" placeholder="Airline"></div><div class="col-md-2"><input name="flight_number" class="form-control" placeholder="Flight no."></div><div class="col-md-2"><input name="departure_airport" class="form-control" placeholder="From"></div><div class="col-md-2"><input name="arrival_airport" class="form-control" placeholder="To"></div><div class="col-md-1"><input name="departure_time" type="time" class="form-control"></div><div class="col-md-1"><input name="arrival_time" type="time" class="form-control"></div><div class="col-12 col-md-10"><input name="notes" class="form-control" placeholder="Notes"></div><div class="col-12 col-md-2"><button class="btn btn-primary w-100">Add flight</button></div></form></div>
+            </tbody></table></div><form method="post" enctype="multipart/form-data" class="card-body border-bottom no-print row g-2 align-items-end"><input type="hidden" name="action" value="import_flight_pdf"><input type="hidden" name="trip_id" value="<?= $tripId ?>"><div class="col-md-5"><label class="form-label">Import flight PDF with OpenAI</label><input name="flight_pdf" type="file" accept="application/pdf,.pdf" class="form-control" required></div><div class="col-md-5"><label class="form-label">Extra flight details</label><input name="flight_extra_details" class="form-control" placeholder="Booking code, passenger, baggage, notes"></div><div class="col-12 col-md-2"><button class="btn btn-outline-primary w-100"><i class="ti ti-sparkles me-1"></i>Import</button></div><div class="col-12 text-secondary small">OpenAI will analyse the PDF and add each flight segment to the flight list.</div></form><form method="post" class="card-body no-print row g-2"><input type="hidden" name="action" value="add_flight"><input type="hidden" name="trip_id" value="<?= $tripId ?>"><div class="col-md-2"><input name="flight_date" type="date" class="form-control"></div><div class="col-md-2"><input name="airline" class="form-control" placeholder="Airline"></div><div class="col-md-2"><input name="flight_number" class="form-control" placeholder="Flight no."></div><div class="col-md-2"><input name="departure_airport" class="form-control" placeholder="From"></div><div class="col-md-2"><input name="arrival_airport" class="form-control" placeholder="To"></div><div class="col-md-1"><input name="departure_time" type="time" class="form-control"></div><div class="col-md-1"><input name="arrival_time" type="time" class="form-control"></div><div class="col-12 col-md-10"><input name="notes" class="form-control" placeholder="Notes"></div><div class="col-12 col-md-2"><button class="btn btn-primary w-100">Add flight</button></div></form></div>
 
             <div class="card mb-3"><div class="card-header"><h3 class="card-title"><i class="ti ti-calendar-event me-2"></i>Itinerary</h3></div><div class="list-group list-group-flush itinerary-card-list">
                 <?php foreach ($days as $d): $hasDocuments = !empty($documentsByDay[(int)$d['id']]); ?><div id="day-<?= (int)$d['id'] ?>" class="list-group-item itinerary-day"><div class="row g-2"><div class="col-12 col-md"><div class="itinerary-day-title"><?= h($d['day_date']) ?> · <?= h($d['title']) ?></div><div class="text-secondary"><?= h($d['location']) ?></div><?php if (!$hasDocuments && trim((string)$d['details']) !== ''): ?><p class="mt-2"><?= nl2br(h($d['details'])) ?></p><?php endif; ?><div class="itinerary-badges"><?php if (trim((string)$d['transport']) !== ''): ?><span class="badge bg-blue-lt">Transport: <?= h($d['transport']) ?></span><?php endif; ?><?php if (trim((string)$d['hotel']) !== ''): ?><span class="badge bg-green-lt">Hotel: <?= h($d['hotel']) ?></span><?php endif; ?><?php if (!empty($d['url'])): ?><a class="badge bg-purple-lt text-decoration-none" href="<?= h($d['url']) ?>" target="_blank" rel="noopener">URL</a><?php endif; ?></div>
