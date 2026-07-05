@@ -221,7 +221,7 @@ function flight_title(array $flight): string
                                                 <div class="d-flex flex-wrap gap-1 mb-2">
                                                     <?php if ($day['hotel']): ?><span class="badge bg-green-lt"><?= h($day['hotel']) ?></span><?php endif; ?>
                                                     <?php if (!empty($day['url'])): ?><span class="badge bg-purple-lt">URL</span><?php endif; ?>
-                                                    <?php if ($day['transport']): ?><span class="badge transport-badge"><?= h($day['transport']) ?></span><?php endif; ?>
+                                                    <?php if ($day['transport']): ?><span class="badge bg-blue-lt"><?= h($day['transport']) ?></span><?php endif; ?>
                                                     <?php if ($documents): ?><span class="badge bg-orange-lt"><?= $documents ?> doc<?= $documents === 1 ? '' : 's' ?></span><?php endif; ?>
                                                     <?php if ($links): ?><span class="badge bg-purple-lt"><?= $links ?> link<?= $links === 1 ? '' : 's' ?></span><?php endif; ?>
                                                 </div>

@@ -155,18 +155,6 @@
     white-space: normal;
     word-break: break-word;
 }
-.transport-badge {
-    background: #fff3cd;
-    border: 1px solid #f5c56b;
-    color: #8a4b00;
-}
-.calendar-event-line-transport {
-    background: #fff8e6;
-    border-radius: 4px;
-    color: #8a4b00;
-    margin-top: 2px;
-    padding: 2px 4px;
-}
 .openai-thinking {
     align-items: center;
     background: rgba(255, 255, 255, 0.82);
