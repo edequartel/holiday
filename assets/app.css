@@ -80,9 +80,24 @@
 .itinerary-day {
     scroll-margin-top: 1rem;
 }
-.itinerary-day-title {
+.itinerary-card-list {
+    background: #f6f8fb;
+    gap: 1rem;
+    padding: 1rem;
+}
+.itinerary-card-list > .list-group-item.itinerary-day {
+    border: 1px solid rgba(98, 105, 118, 0.24) !important;
+    border-radius: 8px !important;
+    box-shadow: 0 8px 22px rgba(24, 36, 51, 0.06);
+    margin-bottom: 1rem;
+    padding: 1.5rem;
+}
+.itinerary-card-list > .list-group-item.itinerary-day:last-child {
+    margin-bottom: 0;
+}
+.itinerary-card-list .itinerary-day-title {
     color: var(--tblr-body-color);
-    font-size: 1.75rem;
+    font-size: 2rem !important;
     font-weight: 800;
     line-height: 1.18;
     margin-bottom: 0.25rem;
@@ -136,8 +151,14 @@
     .app-delete-day {
         width: 100%;
     }
-    .itinerary-day-title {
-        font-size: 1.35rem;
+    .itinerary-card-list {
+        padding: 0.75rem;
+    }
+    .itinerary-card-list > .list-group-item.itinerary-day {
+        padding: 1rem;
+    }
+    .itinerary-card-list .itinerary-day-title {
+        font-size: 1.45rem !important;
     }
     .openai-thinking-box {
         align-items: flex-start;
