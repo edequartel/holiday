@@ -509,6 +509,17 @@ function has_group_values(array $fields): bool
 
     return false;
 }
+
+function day_summary_fields(array $day): array
+{
+    return [
+        'Date' => $day['day_date'] ?? '',
+        'Day title' => $day['title'] ?? '',
+        'Location' => $day['location'] ?? '',
+        'Hotel' => $day['hotel'] ?? '',
+        'Transport' => $day['transport'] ?? '',
+    ];
+}
 ?>
 <!doctype html>
 <html lang="en">
@@ -560,6 +571,25 @@ function has_group_values(array $fields): bool
                 <textarea name="notes" class="form-control mt-2" rows="3" placeholder="Trip notes"></textarea>
                 <button class="btn btn-primary mt-3 w-100"><i class="ti ti-plus me-1"></i>Create trip</button>
             </form></div>
+            <?php if ($trip && $days): ?>
+                <div class="card mt-3"><div class="card-header"><h3 class="card-title"><i class="ti ti-calendar-event me-2"></i>Calendar</h3></div><div class="list-group list-group-flush">
+                    <?php foreach ($days as $d): ?>
+                        <a href="#day-<?= (int)$d['id'] ?>" class="list-group-item">
+                            <strong><?= h($d['day_date']) ?></strong><br>
+                            <small><?= h($d['title'] ?: $d['location']) ?></small>
+                        </a>
+                    <?php endforeach; ?>
+                </div></div>
+                <div class="card mt-3"><div class="card-header"><h3 class="card-title"><i class="ti ti-list-check me-2"></i>Planning</h3></div><div class="list-group list-group-flush">
+                    <?php foreach ($days as $d): ?>
+                        <a href="#day-<?= (int)$d['id'] ?>" class="list-group-item">
+                            <strong><?= h($d['title'] ?: 'Untitled day') ?></strong>
+                            <div class="text-secondary small"><?= h($d['location'] ?: $d['hotel']) ?></div>
+                            <?php if ($d['hotel']): ?><span class="badge bg-green-lt mt-1"><?= h($d['hotel']) ?></span><?php endif; ?>
+                        </a>
+                    <?php endforeach; ?>
+                </div></div>
+            <?php endif; ?>
         </div>
 
         <div class="col-lg-9">
@@ -648,13 +678,23 @@ function has_group_values(array $fields): bool
             </tbody></table></div><form method="post" class="card-body no-print row g-2"><input type="hidden" name="action" value="add_flight"><input type="hidden" name="trip_id" value="<?= $tripId ?>"><div class="col-md-2"><input name="flight_date" type="date" class="form-control"></div><div class="col-md-2"><input name="airline" class="form-control" placeholder="Airline"></div><div class="col-md-2"><input name="flight_number" class="form-control" placeholder="Flight no."></div><div class="col-md-2"><input name="departure_airport" class="form-control" placeholder="From"></div><div class="col-md-2"><input name="arrival_airport" class="form-control" placeholder="To"></div><div class="col-md-1"><input name="departure_time" type="time" class="form-control"></div><div class="col-md-1"><input name="arrival_time" type="time" class="form-control"></div><div class="col-10"><input name="notes" class="form-control" placeholder="Notes"></div><div class="col-2"><button class="btn btn-primary w-100">Add flight</button></div></form></div>
 
             <div class="card mb-3"><div class="card-header"><h3 class="card-title"><i class="ti ti-calendar-event me-2"></i>Itinerary</h3></div><div class="list-group list-group-flush">
-                <?php foreach ($days as $d): $hasDocuments = !empty($documentsByDay[(int)$d['id']]); ?><div class="list-group-item"><div class="row"><div class="col"><strong><?= h($d['day_date']) ?> · <?= h($d['title']) ?></strong><div class="text-secondary"><?= h($d['location']) ?></div><?php if (!$hasDocuments && trim((string)$d['details']) !== ''): ?><p class="mt-2"><?= nl2br(h($d['details'])) ?></p><?php endif; ?><span class="badge bg-blue-lt">Transport: <?= h($d['transport']) ?></span> <span class="badge bg-green-lt">Hotel: <?= h($d['hotel']) ?></span>
+                <?php foreach ($days as $d): $hasDocuments = !empty($documentsByDay[(int)$d['id']]); ?><div id="day-<?= (int)$d['id'] ?>" class="list-group-item itinerary-day"><div class="row"><div class="col"><strong><?= h($d['day_date']) ?> · <?= h($d['title']) ?></strong><div class="text-secondary"><?= h($d['location']) ?></div><?php if (!$hasDocuments && trim((string)$d['details']) !== ''): ?><p class="mt-2"><?= nl2br(h($d['details'])) ?></p><?php endif; ?><span class="badge bg-blue-lt">Transport: <?= h($d['transport']) ?></span> <span class="badge bg-green-lt">Hotel: <?= h($d['hotel']) ?></span>
                     <?php if (!empty($documentsByDay[(int)$d['id']])): ?><div class="mt-3 no-print">
                         <?php foreach ($documentsByDay[(int)$d['id']] as $document): $bookingDetails = decoded_booking_details($document); ?>
                             <div class="border rounded p-3 mb-2">
                                 <div class="d-flex justify-content-between gap-2 align-items-center mb-2">
                                     <strong><i class="ti ti-file-type-pdf me-1"></i><?= h($document['original_name']) ?></strong>
                                     <a class="btn btn-sm btn-outline-secondary" href="document.php?id=<?= (int)$document['id'] ?>" target="_blank" rel="noopener">Open</a>
+                                </div>
+                                <div class="row g-2 mb-3">
+                                    <?php foreach (day_summary_fields($d) as $label => $value): ?>
+                                        <?php if (trim((string)$value) !== ''): ?>
+                                            <div class="col-md-4">
+                                                <div class="text-secondary small text-uppercase"><?= h($label) ?></div>
+                                                <div><?= h($value) ?></div>
+                                            </div>
+                                        <?php endif; ?>
+                                    <?php endforeach; ?>
                                 </div>
                                 <?php if ($bookingDetails): ?>
                                     <div class="row g-2">

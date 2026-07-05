@@ -9,6 +9,9 @@
 .map-popup-title {
     font-weight: 700;
 }
+.itinerary-day {
+    scroll-margin-top: 1rem;
+}
 @media print {
     .no-print { display: none !important; }
     #map { height: 360px; }
