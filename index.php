@@ -906,6 +906,31 @@ function day_summary_fields(array $day): array
         </div>
     </div>
 </div>
+<script>
+window.showOpenAiThinking = function(message = 'Analysing your travel information...') {
+    const overlay = document.getElementById('openaiThinking');
+    if (!overlay) return;
+    const text = overlay.querySelector('.text-secondary');
+    if (text) text.textContent = message;
+    overlay.classList.add('is-visible');
+    overlay.setAttribute('aria-hidden', 'false');
+};
+
+document.addEventListener('submit', event => {
+    const form = event.target;
+    if (!(form instanceof HTMLFormElement)) return;
+
+    const action = form.querySelector('input[name="action"]')?.value;
+    if (!['import_day_pdf', 'add_day_link'].includes(action)) return;
+    if (form.dataset.openaiSubmitting === '1') return;
+
+    event.preventDefault();
+    window.showOpenAiThinking(action === 'import_day_pdf' ? 'Reading the document and dividing details by day...' : 'Reading the website and extracting useful day details...');
+    form.dataset.openaiSubmitting = '1';
+    form.querySelectorAll('button').forEach(button => button.disabled = true);
+    requestAnimationFrame(() => window.setTimeout(() => form.submit(), 120));
+}, true);
+</script>
 <div class="page"><div class="page-wrapper">
     <div class="page-header d-print-none"><div class="container-xl"><div class="row align-items-center">
         <div class="col"><h2 class="page-title"><i class="ti ti-plane-departure me-2"></i>Holiday Planner</h2><div class="text-secondary">Trips · flights · itinerary · map · OpenAI POI suggestions</div></div>
@@ -1347,28 +1372,9 @@ function escapeHtml(str) {
     return String(str).replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 }
 
-function showOpenAiThinking(message = 'Analysing your travel information...') {
-    const overlay = document.getElementById('openaiThinking');
-    if (!overlay) return;
-    const text = overlay.querySelector('.text-secondary');
-    if (text) text.textContent = message;
-    overlay.classList.add('is-visible');
-    overlay.setAttribute('aria-hidden', 'false');
-}
-
-document.querySelectorAll('form').forEach(form => {
-    const action = form.querySelector('input[name="action"]')?.value;
-    if (['import_day_pdf', 'add_day_link'].includes(action)) {
-        form.addEventListener('submit', () => {
-            showOpenAiThinking(action === 'import_day_pdf' ? 'Reading the document and dividing details by day...' : 'Reading the website and extracting useful day details...');
-            form.querySelectorAll('button').forEach(button => button.disabled = true);
-        });
-    }
-});
-
 async function suggestPoi() {
     const box = document.getElementById('aiResults');
-    showOpenAiThinking('Finding useful POI suggestions...');
+    window.showOpenAiThinking('Finding useful POI suggestions...');
     box.innerHTML = '<div class="alert alert-info">Asking OpenAI for POI suggestions...</div>';
     try {
         const res = await fetch('api/suggest-poi.php', {
