@@ -102,6 +102,22 @@
     line-height: 1.18;
     margin-bottom: 0.25rem;
 }
+.itinerary-badges {
+    align-items: flex-start;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-top: 0.35rem;
+    max-width: 100%;
+}
+.itinerary-badges .badge {
+    display: inline-block;
+    line-height: 1.35;
+    max-width: 100%;
+    text-align: left;
+    white-space: normal;
+    word-break: break-word;
+}
 .openai-thinking {
     align-items: center;
     background: rgba(255, 255, 255, 0.82);
