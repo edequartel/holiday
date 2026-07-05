@@ -32,6 +32,14 @@
     font-size: 0.72rem;
     opacity: 0.85;
 }
+.calendar-event-line {
+    display: block;
+    font-size: 0.72rem;
+    opacity: 0.9;
+}
+.calendar-event-line span {
+    font-weight: 600;
+}
 .fc {
     --fc-border-color: rgba(98, 105, 118, 0.18);
     --fc-button-bg-color: var(--tblr-primary);
@@ -102,15 +110,6 @@
 @media print {
     .no-print { display: none !important; }
     #map { height: 360px; }
-}
-@media (max-width: 991.98px) {
-    .app-sidebar {
-        order: 2;
-    }
-    .app-sidebar .list-group {
-        max-height: 260px;
-        overflow: auto;
-    }
 }
 @media (max-width: 575.98px) {
     #map {

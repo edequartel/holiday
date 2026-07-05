@@ -31,12 +31,6 @@ $linkCounts = day_count_map($stmt->fetchAll());
 
 $events = [];
 foreach ($days as $day) {
-    $summaryParts = array_filter([
-        trim((string)($day['location'] ?? '')),
-        trim((string)($day['hotel'] ?? '')) ? 'Hotel: ' . trim((string)$day['hotel']) : '',
-        trim((string)($day['transport'] ?? '')) ? 'Transport: ' . trim((string)$day['transport']) : '',
-    ]);
-
     $events[] = [
         'id' => (string)$day['id'],
         'title' => trim((string)($day['title'] ?? '')) ?: 'Planned day',
@@ -47,8 +41,8 @@ foreach ($days as $day) {
             'location' => (string)($day['location'] ?? ''),
             'hotel' => (string)($day['hotel'] ?? ''),
             'transport' => (string)($day['transport'] ?? ''),
+            'time' => calendar_time_from_day($day),
             'details' => short_calendar_text((string)($day['details'] ?? ''), 120),
-            'summary' => implode(' · ', $summaryParts),
             'documents' => $documentCounts[(int)$day['id']] ?? 0,
             'links' => $linkCounts[(int)$day['id']] ?? 0,
         ],
@@ -76,6 +70,19 @@ function short_calendar_text(string $value, int $limit = 120): string
     }
 
     return substr($value, 0, $limit - 3) . '...';
+}
+
+function calendar_time_from_day(array $day): string
+{
+    $source = trim((string)($day['transport'] ?? '') . ' ' . (string)($day['details'] ?? ''));
+    if (preg_match('/\b(?:[01]?\d|2[0-3])[:.][0-5]\d\b/', $source, $matches)) {
+        return str_replace('.', ':', $matches[0]);
+    }
+    if (preg_match('/\b(?:[1-9]|1[0-2])\s?(?:am|pm)\b/i', $source, $matches)) {
+        return strtoupper(preg_replace('/\s+/', '', $matches[0]));
+    }
+
+    return '';
 }
 ?>
 <!doctype html>
@@ -198,15 +205,20 @@ document.addEventListener('DOMContentLoaded', () => {
         },
         eventContent(info) {
             const props = info.event.extendedProps;
-            const meta = [props.location, props.hotel ? `Hotel: ${props.hotel}` : '', props.transport ? `Transport: ${props.transport}` : ''].filter(Boolean).join(' · ');
-            const counts = [props.documents ? `${props.documents} doc${props.documents === 1 ? '' : 's'}` : '', props.links ? `${props.links} link${props.links === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ');
+            const lines = [
+                ['Location', props.location],
+                ['Hotel', props.hotel],
+                ['Transport', props.transport],
+                ['Time', props.time],
+                ['Details', props.details],
+                ['Documents', props.documents ? `${props.documents}` : ''],
+                ['Links', props.links ? `${props.links}` : '']
+            ].filter(([, value]) => value);
             const wrapper = document.createElement('div');
             wrapper.className = 'calendar-event';
             wrapper.innerHTML = `
                 <div class="calendar-event-title">${escapeHtml(info.event.title)}</div>
-                ${meta ? `<div class="calendar-event-meta">${escapeHtml(meta)}</div>` : ''}
-                ${props.details ? `<div class="calendar-event-meta">${escapeHtml(props.details)}</div>` : ''}
-                ${counts ? `<div class="calendar-event-counts">${escapeHtml(counts)}</div>` : ''}
+                ${lines.map(([label, value]) => `<div class="calendar-event-line"><span>${escapeHtml(label)}:</span> ${escapeHtml(value)}</div>`).join('')}
             `;
             return { domNodes: [wrapper] };
         }
