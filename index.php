@@ -110,6 +110,11 @@ if ($action === 'delete_day') {
     redirect_to_trip($tripIdPost);
 }
 
+if ($action === 'delete_document') {
+    delete_single_document($pdo, (int)$_POST['document_id'], $tripIdPost);
+    redirect_to_trip($tripIdPost);
+}
+
 if (in_array($action, ['delete_flight','delete_item','delete_point','delete_link'], true)) {
     $map = [
         'delete_flight' => ['flights', 'flight_id'],
@@ -205,6 +210,23 @@ function delete_day_with_documents(PDO $pdo, int $dayId, int $tripId): void
 
     $stmt = $pdo->prepare('DELETE FROM itinerary_days WHERE id=? AND trip_id=?');
     $stmt->execute([$dayId, $tripId]);
+}
+
+function delete_single_document(PDO $pdo, int $documentId, int $tripId): void
+{
+    $stmt = $pdo->prepare('SELECT file_path FROM day_documents WHERE id=? AND trip_id=?');
+    $stmt->execute([$documentId, $tripId]);
+    $document = $stmt->fetch();
+    if (!$document) {
+        return;
+    }
+
+    $relativePath = (string)($document['file_path'] ?? '');
+    $stmt = $pdo->prepare('DELETE FROM day_documents WHERE id=? AND trip_id=?');
+    $stmt->execute([$documentId, $tripId]);
+    if ($stmt->rowCount() > 0) {
+        delete_uploaded_document_file_if_unused($pdo, $relativePath);
+    }
 }
 
 function compare_points_by_date(array $a, array $b): int
@@ -1236,7 +1258,15 @@ document.addEventListener('submit', event => {
                             <div class="border rounded p-3 mb-2">
                                 <div class="d-flex flex-wrap justify-content-between gap-2 align-items-center mb-2">
                                     <strong><i class="ti ti-file-type-pdf me-1"></i><?= h($document['original_name']) ?></strong>
-                                    <a class="btn btn-sm btn-outline-secondary" href="document.php?id=<?= (int)$document['id'] ?>" target="_blank" rel="noopener">Open</a>
+                                    <div class="d-flex flex-wrap gap-2">
+                                        <a class="btn btn-sm btn-outline-secondary" href="document.php?id=<?= (int)$document['id'] ?>" target="_blank" rel="noopener">Open</a>
+                                        <form method="post" class="m-0">
+                                            <input type="hidden" name="action" value="delete_document">
+                                            <input type="hidden" name="trip_id" value="<?= $tripId ?>">
+                                            <input type="hidden" name="document_id" value="<?= (int)$document['id'] ?>">
+                                            <button class="btn btn-sm btn-outline-danger" aria-label="Delete document"><i class="ti ti-trash"></i></button>
+                                        </form>
+                                    </div>
                                 </div>
                                 <div class="row g-2 mb-3">
                                     <?php foreach (day_summary_fields($d) as $label => $value): ?>
