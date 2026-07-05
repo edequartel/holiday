@@ -85,6 +85,7 @@ CREATE TABLE day_links (
   title VARCHAR(255) NOT NULL,
   url VARCHAR(1000) NOT NULL,
   notes TEXT,
+  extracted_json JSON NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE CASCADE,
   FOREIGN KEY (day_id) REFERENCES itinerary_days(id) ON DELETE CASCADE

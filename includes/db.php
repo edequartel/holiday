@@ -65,9 +65,15 @@ function ensure_day_links_table(PDO $pdo): void
           title VARCHAR(255) NOT NULL,
           url VARCHAR(1000) NOT NULL,
           notes TEXT,
+          extracted_json JSON NULL,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE CASCADE,
           FOREIGN KEY (day_id) REFERENCES itinerary_days(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
+
+    $columns = $pdo->query("SHOW COLUMNS FROM day_links LIKE 'extracted_json'")->fetchAll();
+    if (!$columns) {
+        $pdo->exec('ALTER TABLE day_links ADD COLUMN extracted_json JSON NULL AFTER notes');
+    }
 }

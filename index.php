@@ -186,15 +186,21 @@ function delete_day_with_documents(PDO $pdo, int $dayId, int $tripId): void
     $stmt = $pdo->prepare('SELECT file_path FROM day_documents WHERE day_id=? AND trip_id=?');
     $stmt->execute([$dayId, $tripId]);
     foreach ($stmt->fetchAll() as $document) {
-        delete_uploaded_document_file($document['file_path'] ?? '');
+        delete_uploaded_document_file($pdo, $document['file_path'] ?? '', $dayId);
     }
 
     $stmt = $pdo->prepare('DELETE FROM itinerary_days WHERE id=? AND trip_id=?');
     $stmt->execute([$dayId, $tripId]);
 }
 
-function delete_uploaded_document_file(string $relativePath): void
+function delete_uploaded_document_file(PDO $pdo, string $relativePath, int $deletedDayId): void
 {
+    $stmt = $pdo->prepare('SELECT COUNT(*) FROM day_documents WHERE file_path=? AND day_id<>?');
+    $stmt->execute([$relativePath, $deletedDayId]);
+    if ((int)$stmt->fetchColumn() > 0) {
+        return;
+    }
+
     $baseDir = realpath(__DIR__ . '/uploads/day-documents');
     $filePath = realpath(__DIR__ . '/' . $relativePath);
     $allowedPrefix = $baseDir ? $baseDir . DIRECTORY_SEPARATOR : '';
@@ -212,9 +218,10 @@ function add_day_link(PDO $pdo, int $tripId): void
         return;
     }
 
-    $stmt = $pdo->prepare('SELECT id FROM itinerary_days WHERE id=? AND trip_id=?');
+    $stmt = $pdo->prepare('SELECT * FROM itinerary_days WHERE id=? AND trip_id=?');
     $stmt->execute([$dayId, $tripId]);
-    if (!$stmt->fetch()) {
+    $day = $stmt->fetch();
+    if (!$day) {
         return;
     }
 
@@ -224,8 +231,33 @@ function add_day_link(PDO $pdo, int $tripId): void
         $title = $host ?: $url;
     }
 
-    $stmt = $pdo->prepare('INSERT INTO day_links (trip_id, day_id, title, url, notes) VALUES (?, ?, ?, ?, ?)');
-    $stmt->execute([$tripId, $dayId, $title, $url, trim($_POST['notes'] ?? '')]);
+    $notes = trim($_POST['notes'] ?? '');
+    $extracted = [];
+
+    try {
+        $stmt = $pdo->prepare('SELECT * FROM trips WHERE id=?');
+        $stmt->execute([$tripId]);
+        $trip = $stmt->fetch() ?: [];
+
+        $pageText = fetch_link_text($url);
+        if ($pageText !== '') {
+            $extracted = analyze_link_for_day($url, $title, $notes, $pageText, $trip, $day);
+            update_day_from_import($pdo, $tripId, $dayId, $extracted);
+            save_imported_map_point($pdo, $tripId, $extracted, (string)$day['day_date']);
+        }
+    } catch (Throwable $e) {
+        $extracted = [];
+    }
+
+    $stmt = $pdo->prepare('INSERT INTO day_links (trip_id, day_id, title, url, notes, extracted_json) VALUES (?, ?, ?, ?, ?, ?)');
+    $stmt->execute([
+        $tripId,
+        $dayId,
+        $title,
+        $url,
+        $notes,
+        $extracted ? json_encode($extracted, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : null,
+    ]);
 }
 
 function normalize_day_link_url(string $url): string
@@ -239,6 +271,89 @@ function normalize_day_link_url(string $url): string
     }
 
     return filter_var($url, FILTER_VALIDATE_URL) ? $url : '';
+}
+
+function fetch_link_text(string $url): string
+{
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_MAXREDIRS => 4,
+        CURLOPT_TIMEOUT => 20,
+        CURLOPT_USERAGENT => 'HolidayPlanner/1.0',
+    ]);
+    $response = curl_exec($ch);
+    $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $contentType = curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+    curl_close($ch);
+
+    if (!is_string($response) || $status < 200 || $status >= 300 || stripos((string)$contentType, 'text/html') === false) {
+        return '';
+    }
+
+    $response = preg_replace('/<script\b[^>]*>.*?<\/script>/is', ' ', $response);
+    $response = preg_replace('/<style\b[^>]*>.*?<\/style>/is', ' ', $response);
+    $text = html_entity_decode(strip_tags($response), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    $text = preg_replace('/\s+/', ' ', $text);
+
+    return trim(substr((string)$text, 0, 18000));
+}
+
+function analyze_link_for_day(string $url, string $title, string $notes, string $pageText, array $trip, array $day): array
+{
+    $config = holiday_config();
+    $apiKey = $config['openai_api_key'] ?? '';
+    $model = $config['openai_model'] ?? 'gpt-5.5';
+
+    if ($apiKey === '' || $apiKey === 'YOUR_OPENAI_API_KEY') {
+        return [];
+    }
+
+    $prompt = "Analyze this website content for a travel itinerary day. Extract practical information that should be added to the day.\n" .
+        "URL: {$url}\nTitle: {$title}\nUser notes: {$notes}\n" .
+        "Trip: " . ($trip['title'] ?? '') . "\nDestination: " . ($trip['destination'] ?? '') . "\n" .
+        "Day date: " . ($day['day_date'] ?? '') . "\nExisting day title: " . ($day['title'] ?? '') . "\nExisting location: " . ($day['location'] ?? '') . "\nExisting hotel: " . ($day['hotel'] ?? '') . "\n\n" .
+        "Website text:\n{$pageText}\n\n" .
+        "Return strict JSON only, no markdown. Format:\n" .
+        "{\"title\":\"short activity/place title\",\"location\":\"city or place\",\"hotel\":\"hotel/accommodation name only if relevant\",\"transport\":\"transport details if relevant\",\"details\":\"concise useful summary\",\"address\":\"full address if present\",\"latitude\":\"decimal latitude if identifiable\",\"longitude\":\"decimal longitude if identifiable\",\"opening_hours\":\"opening days/times\",\"activity_time\":\"specific time, duration, or schedule\",\"price\":\"ticket/entry/price info\",\"booking\":\"booking/reservation/ticket instructions\",\"contact\":\"phone/email/contact details\",\"website\":\"best official URL\",\"important_notes\":[\"meeting point, entry rules, accessibility, what to bring, closures, warnings, tips\"]}\n" .
+        "Only include information supported by the website text or clearly inferable from the URL/title. If a field is missing, use an empty string or empty array.";
+
+    $payload = [
+        'model' => $model,
+        'input' => $prompt,
+    ];
+
+    $ch = curl_init('https://api.openai.com/v1/responses');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST => true,
+        CURLOPT_HTTPHEADER => [
+            'Content-Type: application/json',
+            'Authorization: Bearer ' . $apiKey,
+        ],
+        CURLOPT_POSTFIELDS => json_encode($payload),
+        CURLOPT_TIMEOUT => 80,
+    ]);
+
+    $response = curl_exec($ch);
+    $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if (!is_string($response) || $status < 200 || $status >= 300) {
+        return [];
+    }
+
+    $data = json_decode($response, true);
+    if (!is_array($data)) {
+        return [];
+    }
+
+    $text = trim(response_output_text($data));
+    $text = preg_replace('/^```json\s*|\s*```$/', '', $text);
+    $decoded = json_decode($text, true);
+
+    return is_array($decoded) ? $decoded : [];
 }
 
 function import_day_pdf(PDO $pdo, int $tripId): array
@@ -304,39 +419,19 @@ function import_day_pdf(PDO $pdo, int $tripId): array
 
     $extraDetails = trim($_POST['extra_details'] ?? '');
     try {
-        $itinerary = extract_itinerary_from_pdf($storedPath, $originalName, $trip, $dayDate, $extraDetails, $existingDay);
-        if ($existingDay) {
-            $dayId = (int)$existingDay['id'];
+        $analysis = extract_itinerary_from_pdf($storedPath, $originalName, $trip, $dayDate, $extraDetails, $existingDay);
+        $importedDays = normalize_imported_days($analysis, $dayDate, $existingDay);
+        $attachedCount = 0;
+
+        foreach ($importedDays as $itinerary) {
+            $dayId = find_or_create_imported_day($pdo, $tripId, $itinerary, $existingDay);
             update_day_from_import($pdo, $tripId, $dayId, $itinerary);
-        } else {
-            $stmt = $pdo->prepare('INSERT INTO itinerary_days (trip_id, day_date, location, title, details, transport, hotel) VALUES (?, ?, ?, ?, ?, ?, ?)');
-            $stmt->execute([
-                $tripId,
-                $dayDate,
-                $itinerary['location'] ?? '',
-                $itinerary['title'] ?? 'Booking details',
-                '',
-                $itinerary['transport'] ?? '',
-                $itinerary['hotel'] ?? '',
-            ]);
-            $dayId = (int)$pdo->lastInsertId();
+            save_imported_map_point($pdo, $tripId, $itinerary, (string)($itinerary['day_date'] ?? $dayDate));
+            insert_day_document($pdo, $tripId, $dayId, $originalName, $storedName, $relativePath, $mimeType, (int)$upload['size'], $extraDetails, $itinerary);
+            $attachedCount++;
         }
-        save_imported_map_point($pdo, $tripId, $itinerary, $dayDate);
 
-        $stmt = $pdo->prepare('INSERT INTO day_documents (trip_id, day_id, original_name, stored_name, file_path, mime_type, file_size, notes, extracted_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
-        $stmt->execute([
-            $tripId,
-            $dayId,
-            $originalName,
-            $storedName,
-            $relativePath,
-            $mimeType,
-            (int)$upload['size'],
-            $extraDetails,
-            json_encode($itinerary, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-        ]);
-
-        return ['type' => 'success', 'message' => $existingDay ? 'PDF attached to itinerary day.' : 'PDF imported and itinerary day added.'];
+        return ['type' => 'success', 'message' => "PDF analysed and divided over {$attachedCount} day(s)."];
     } catch (Throwable $e) {
         @unlink($storedPath);
         return ['type' => 'danger', 'message' => 'OpenAI could not read this PDF: ' . $e->getMessage()];
@@ -361,6 +456,90 @@ function update_day_from_import(PDO $pdo, int $tripId, int $dayId, array $itiner
     $stmt->execute([$title, $location, $transport, $hotel, $dayId, $tripId]);
 }
 
+function normalize_imported_days(array $analysis, string $fallbackDate, ?array $existingDay): array
+{
+    $items = isset($analysis['days']) && is_array($analysis['days']) ? $analysis['days'] : [$analysis];
+    $days = [];
+
+    foreach ($items as $item) {
+        if (!is_array($item)) {
+            continue;
+        }
+
+        $dayDate = normalize_imported_day_date(trim((string)($item['day_date'] ?? '')));
+        if ($dayDate === '') {
+            $dayDate = normalize_imported_day_date(trim((string)($item['arrival_date'] ?? '')));
+        }
+        if ($dayDate === '') {
+            $dayDate = $existingDay ? (string)$existingDay['day_date'] : $fallbackDate;
+        }
+
+        $item['day_date'] = $dayDate;
+        $item['title'] = trim((string)($item['title'] ?? '')) ?: 'Imported booking';
+        $days[] = $item;
+    }
+
+    return $days ?: [[
+        'day_date' => $existingDay ? (string)$existingDay['day_date'] : $fallbackDate,
+        'title' => 'Imported booking',
+    ]];
+}
+
+function normalize_imported_day_date(string $value): string
+{
+    if (preg_match('/\d{4}-\d{2}-\d{2}/', $value, $matches)) {
+        return $matches[0];
+    }
+
+    return '';
+}
+
+function find_or_create_imported_day(PDO $pdo, int $tripId, array $itinerary, ?array $existingDay): int
+{
+    $dayDate = trim((string)($itinerary['day_date'] ?? ''));
+    if ($existingDay && ($dayDate === '' || $dayDate === (string)$existingDay['day_date'])) {
+        return (int)$existingDay['id'];
+    }
+
+    if ($dayDate !== '') {
+        $stmt = $pdo->prepare('SELECT id FROM itinerary_days WHERE trip_id=? AND day_date=? ORDER BY id ASC LIMIT 1');
+        $stmt->execute([$tripId, $dayDate]);
+        $id = $stmt->fetchColumn();
+        if ($id) {
+            return (int)$id;
+        }
+    }
+
+    $stmt = $pdo->prepare('INSERT INTO itinerary_days (trip_id, day_date, location, title, details, transport, hotel) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    $stmt->execute([
+        $tripId,
+        $dayDate ?: date('Y-m-d'),
+        $itinerary['location'] ?? '',
+        $itinerary['title'] ?? 'Imported booking',
+        '',
+        $itinerary['transport'] ?? '',
+        $itinerary['hotel'] ?? '',
+    ]);
+
+    return (int)$pdo->lastInsertId();
+}
+
+function insert_day_document(PDO $pdo, int $tripId, int $dayId, string $originalName, string $storedName, string $relativePath, string $mimeType, int $fileSize, string $notes, array $itinerary): void
+{
+    $stmt = $pdo->prepare('INSERT INTO day_documents (trip_id, day_id, original_name, stored_name, file_path, mime_type, file_size, notes, extracted_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    $stmt->execute([
+        $tripId,
+        $dayId,
+        $originalName,
+        $storedName,
+        $relativePath,
+        $mimeType,
+        $fileSize,
+        $notes,
+        json_encode($itinerary, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+    ]);
+}
+
 function extract_itinerary_from_pdf(string $filePath, string $filename, array $trip, string $dayDate, string $extraDetails, ?array $existingDay = null): array
 {
     $config = holiday_config();
@@ -376,7 +555,7 @@ function extract_itinerary_from_pdf(string $filePath, string $filename, array $t
         throw new RuntimeException('Could not read the uploaded PDF.');
     }
 
-    $prompt = "Read this booking, activity, ticket, restaurant, transport, or travel-detail PDF carefully and extract every practical detail needed while traveling.\n" .
+    $prompt = "Read this booking, activity, ticket, restaurant, transport, or travel-detail PDF carefully. It may contain multiple dates, hotels, transfers, or activities. Split it into separate itinerary-day items.\n" .
         "Trip: " . ($trip['title'] ?? '') . "\n" .
         "Destination: " . ($trip['destination'] ?? '') . "\n" .
         "Trip travel dates: " . ($trip['start_date'] ?? '') . " to " . ($trip['end_date'] ?? '') . "\n" .
@@ -384,8 +563,8 @@ function extract_itinerary_from_pdf(string $filePath, string $filename, array $t
         ($existingDay ? "Existing itinerary day title: " . ($existingDay['title'] ?? '') . "\nExisting location: " . ($existingDay['location'] ?? '') . "\nExisting hotel: " . ($existingDay['hotel'] ?? '') . "\n" : '') .
         "Extra details from user: {$extraDetails}\n\n" .
         "Return strict JSON only, no markdown. Format:\n" .
-        "{\"title\":\"short day title\",\"location\":\"city or place\",\"hotel\":\"hotel or accommodation name if present\",\"transport\":\"transport summary if present\",\"details\":\"clear human summary\",\"arrival_date\":\"YYYY-MM-DD or original text\",\"departure_date\":\"YYYY-MM-DD or original text\",\"nights\":\"number or text\",\"check_in\":\"time/window and instructions\",\"check_out\":\"time/window and instructions\",\"breakfast\":\"included/not included/time/location/details\",\"address\":\"full address\",\"latitude\":\"decimal latitude for the main location\",\"longitude\":\"decimal longitude for the main location\",\"confirmation\":\"booking reference/PIN/reservation/ticket number\",\"guest_name\":\"name if present\",\"room\":\"room type, seat, ticket category, or unit\",\"payment\":\"paid/due/taxes/deposit/currency details\",\"cancellation\":\"deadline or policy summary\",\"contact\":\"phone/email/reception/contact details\",\"parking\":\"parking instructions/cost if present\",\"important_notes\":[\"activity time, meeting point, entry rules, QR/ticket instructions, wifi, access code, luggage, accessibility, house rules, documents to bring, local taxes, or other useful details\"]}\n" .
-        "Use the selected day date for the created or attached itinerary day, but extract all stay/activity/ticket dates from the PDF. Add real approximate latitude and longitude for the hotel, accommodation, activity venue, restaurant, station, airport, or main booked location when you can identify it. Do not omit breakfast, check-in, check-out, meeting point, activity time, address, confirmation/ticket numbers, payment/tax details, cancellation policy, contact details, parking, access, or entry instructions when present. If a field is missing, use an empty string or empty array.";
+        "{\"days\":[{\"day_date\":\"YYYY-MM-DD\",\"title\":\"short day title\",\"location\":\"city or place\",\"hotel\":\"hotel or accommodation name if present\",\"transport\":\"transport summary if relevant\",\"details\":\"one short sentence only\",\"arrival_date\":\"YYYY-MM-DD or original text\",\"departure_date\":\"YYYY-MM-DD or original text\",\"nights\":\"number or text\",\"check_in\":\"short time/window\",\"check_out\":\"short time/window\",\"breakfast\":\"short included/not included/time\",\"address\":\"full address\",\"latitude\":\"decimal latitude for the main location\",\"longitude\":\"decimal longitude for the main location\",\"confirmation\":\"booking/ticket number\",\"guest_name\":\"name if present\",\"room\":\"room, seat, ticket category, or unit\",\"payment\":\"short total/due/tax detail only if essential\",\"cancellation\":\"short deadline only if essential\",\"contact\":\"phone/email/contact\",\"parking\":\"short parking/access note\",\"important_notes\":[\"maximum 4 short essential notes\"]}]}\n" .
+        "Create one days[] item per hotel stay, activity date, transfer date, or ticket date. Keep all fields concise. Do not include long policy text. Add real approximate latitude and longitude for the hotel, accommodation, activity venue, restaurant, station, airport, or main booked location when you can identify it. If a field is missing, use an empty string or empty array.";
 
     $payload = [
         'model' => $model,
@@ -547,11 +726,10 @@ function format_imported_itinerary_details(array $itinerary): string
 function booking_detail_groups(array $itinerary): array
 {
     return [
-        'Stay' => [
+        'Essentials' => [
             'Hotel' => $itinerary['hotel'] ?? '',
-            'Room' => $itinerary['room'] ?? '',
-            'Guest' => $itinerary['guest_name'] ?? '',
             'Address' => $itinerary['address'] ?? '',
+            'Room' => $itinerary['room'] ?? '',
         ],
         'Dates' => [
             'Arrival' => $itinerary['arrival_date'] ?? '',
@@ -569,9 +747,29 @@ function booking_detail_groups(array $itinerary): array
         ],
         'Booking' => [
             'Confirmation' => $itinerary['confirmation'] ?? '',
-            'Payment' => $itinerary['payment'] ?? '',
-            'Cancellation' => $itinerary['cancellation'] ?? '',
             'Contact' => $itinerary['contact'] ?? '',
+        ],
+    ];
+}
+
+function link_detail_groups(array $details): array
+{
+    return [
+        'Place' => [
+            'Title' => $details['title'] ?? '',
+            'Location' => $details['location'] ?? '',
+            'Address' => $details['address'] ?? '',
+        ],
+        'Visit' => [
+            'Opening hours' => $details['opening_hours'] ?? '',
+            'Activity time' => $details['activity_time'] ?? '',
+            'Price' => $details['price'] ?? '',
+        ],
+        'Booking' => [
+            'Booking' => $details['booking'] ?? '',
+            'Transport' => $details['transport'] ?? '',
+            'Contact' => $details['contact'] ?? '',
+            'Website' => $details['website'] ?? '',
         ],
     ];
 }
@@ -579,6 +777,17 @@ function booking_detail_groups(array $itinerary): array
 function decoded_booking_details(array $document): array
 {
     $json = $document['extracted_json'] ?? '';
+    if (!is_string($json) || trim($json) === '') {
+        return [];
+    }
+
+    $decoded = json_decode($json, true);
+    return is_array($decoded) ? $decoded : [];
+}
+
+function decoded_link_details(array $link): array
+{
+    $json = $link['extracted_json'] ?? '';
     if (!is_string($json) || trim($json) === '') {
         return [];
     }
@@ -596,6 +805,36 @@ function has_group_values(array $fields): bool
     }
 
     return false;
+}
+
+function short_display_value($value, int $limit = 220): string
+{
+    $value = trim(preg_replace('/\s+/', ' ', (string)$value));
+    if (strlen($value) <= $limit) {
+        return $value;
+    }
+
+    return substr($value, 0, $limit - 3) . '...';
+}
+
+function essential_notes($notes, int $max = 4): array
+{
+    if (is_string($notes) && trim($notes) !== '') {
+        $notes = [trim($notes)];
+    }
+    if (!is_array($notes)) {
+        return [];
+    }
+
+    $clean = [];
+    foreach ($notes as $note) {
+        $note = short_display_value($note, 180);
+        if ($note !== '') {
+            $clean[] = $note;
+        }
+    }
+
+    return array_slice($clean, 0, $max);
 }
 
 function day_summary_fields(array $day): array
@@ -794,20 +1033,20 @@ function day_summary_fields(array $day): array
                                                         <?php foreach ($fields as $label => $value): ?>
                                                             <?php if (trim((string)$value) !== ''): ?>
                                                                 <dt class="col-sm-4"><?= h($label) ?></dt>
-                                                                <dd class="col-sm-8"><?= nl2br(h($value)) ?></dd>
+                                                                <dd class="col-sm-8"><?= nl2br(h(short_display_value($value))) ?></dd>
                                                             <?php endif; ?>
                                                         <?php endforeach; ?>
                                                     </dl>
                                                 </div>
                                             <?php endif; ?>
                                         <?php endforeach; ?>
-                                        <?php $importantNotes = $bookingDetails['important_notes'] ?? []; ?>
-                                        <?php if (is_array($importantNotes) && count(array_filter($importantNotes))): ?>
+                                        <?php $importantNotes = essential_notes($bookingDetails['important_notes'] ?? []); ?>
+                                        <?php if ($importantNotes): ?>
                                             <div class="col-12">
                                                 <div class="text-secondary small text-uppercase">Important notes</div>
                                                 <ul class="mb-0 ps-3">
                                                     <?php foreach ($importantNotes as $note): ?>
-                                                        <?php if (trim((string)$note) !== ''): ?><li><?= h($note) ?></li><?php endif; ?>
+                                                        <li><?= h($note) ?></li>
                                                     <?php endforeach; ?>
                                                 </ul>
                                             </div>
@@ -827,7 +1066,7 @@ function day_summary_fields(array $day): array
                     </form>
                     <?php if (!empty($linksByDay[(int)$d['id']])): ?><div class="mt-3 no-print">
                         <div class="text-secondary small text-uppercase mb-2">Websites</div>
-                        <?php foreach ($linksByDay[(int)$d['id']] as $link): ?>
+                        <?php foreach ($linksByDay[(int)$d['id']] as $link): $linkDetails = decoded_link_details($link); ?>
                             <div class="border rounded p-3 mb-2">
                                 <div class="d-flex justify-content-between gap-2 align-items-center">
                                     <div>
@@ -845,6 +1084,36 @@ function day_summary_fields(array $day): array
                                         </form>
                                     </div>
                                 </div>
+                                <?php if ($linkDetails): ?>
+                                    <div class="row g-2 mt-3">
+                                        <?php foreach (link_detail_groups($linkDetails) as $groupTitle => $fields): ?>
+                                            <?php if (has_group_values($fields)): ?>
+                                                <div class="col-md-6">
+                                                    <div class="text-secondary small text-uppercase"><?= h($groupTitle) ?></div>
+                                                    <dl class="row mb-0">
+                                                        <?php foreach ($fields as $label => $value): ?>
+                                                            <?php if (trim((string)$value) !== ''): ?>
+                                                                <dt class="col-sm-4"><?= h($label) ?></dt>
+                                                                <dd class="col-sm-8"><?= nl2br(h($value)) ?></dd>
+                                                            <?php endif; ?>
+                                                        <?php endforeach; ?>
+                                                    </dl>
+                                                </div>
+                                            <?php endif; ?>
+                                        <?php endforeach; ?>
+                                        <?php $linkNotes = $linkDetails['important_notes'] ?? []; ?>
+                                        <?php if (is_array($linkNotes) && count(array_filter($linkNotes))): ?>
+                                            <div class="col-12">
+                                                <div class="text-secondary small text-uppercase">Important notes</div>
+                                                <ul class="mb-0 ps-3">
+                                                    <?php foreach ($linkNotes as $note): ?>
+                                                        <?php if (trim((string)$note) !== ''): ?><li><?= h($note) ?></li><?php endif; ?>
+                                                    <?php endforeach; ?>
+                                                </ul>
+                                            </div>
+                                        <?php endif; ?>
+                                    </div>
+                                <?php endif; ?>
                             </div>
                         <?php endforeach; ?>
                     </div><?php endif; ?>
