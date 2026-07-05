@@ -1449,11 +1449,11 @@ document.addEventListener('submit', event => {
                                         <div class="row align-items-center g-2">
                                             <div class="col">
                                                 <div class="d-flex flex-wrap align-items-center gap-2">
-                                                    <strong><?= h($point['name']) ?></strong>
                                                     <?php if (point_itinerary_date($point)): ?><span class="badge bg-orange-lt"><?= h(point_itinerary_date($point)) ?></span><?php endif; ?>
+                                                    <strong><?= h($point['name']) ?></strong>
                                                     <span class="badge bg-blue-lt"><?= h($point['point_type']) ?></span>
                                                     <span class="badge <?= (int)($point['show_on_map'] ?? 1) === 1 ? 'bg-green-lt' : 'bg-secondary-lt' ?>"><?= (int)($point['show_on_map'] ?? 1) === 1 ? 'map' : 'hidden' ?></span>
-                                                    <?php if ($point['source']): ?><span class="badge bg-green-lt"><?= h($point['source']) ?></span><?php endif; ?>
+                                                    <?php if ($point['source'] && $point['source'] !== 'openai-pdf'): ?><span class="badge bg-green-lt"><?= h($point['source']) ?></span><?php endif; ?>
                                                 </div>
                                                 <div class="text-secondary"><?= h($point['address'] ?: $point['city']) ?></div>
                                                 <?php if ($point['notes']): ?><div class="small mt-1"><?= h($point['notes']) ?></div><?php endif; ?>
