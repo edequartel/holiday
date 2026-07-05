@@ -58,6 +58,7 @@ CREATE TABLE map_points (
   longitude DECIMAL(10,7) NOT NULL,
   notes TEXT,
   source VARCHAR(50) DEFAULT 'manual',
+  show_on_map TINYINT(1) NOT NULL DEFAULT 1,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

@@ -2,6 +2,7 @@
 session_start();
 
 require __DIR__ . '/includes/db.php';
+ensure_map_points_table($pdo);
 ensure_day_documents_table($pdo);
 ensure_day_links_table($pdo);
 
@@ -81,14 +82,20 @@ if ($action === 'toggle_packed') {
 }
 
 if ($action === 'add_point') {
-    $stmt = $pdo->prepare('INSERT INTO map_points (trip_id, point_type, name, address, city, latitude, longitude, notes, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
-    $stmt->execute([$tripIdPost, $_POST['point_type'], $_POST['name'], $_POST['address'], $_POST['city'], $_POST['latitude'], $_POST['longitude'], $_POST['notes'], 'manual']);
+    $stmt = $pdo->prepare('INSERT INTO map_points (trip_id, point_type, name, address, city, latitude, longitude, notes, source, show_on_map) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    $stmt->execute([$tripIdPost, $_POST['point_type'], $_POST['name'], $_POST['address'], $_POST['city'], $_POST['latitude'], $_POST['longitude'], $_POST['notes'], 'manual', isset($_POST['show_on_map']) ? 1 : 0]);
     redirect_to_trip($tripIdPost);
 }
 
 if ($action === 'save_ai_point') {
-    $stmt = $pdo->prepare('INSERT INTO map_points (trip_id, point_type, name, city, latitude, longitude, notes, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
-    $stmt->execute([$tripIdPost, $_POST['point_type'], $_POST['name'], $_POST['city'], $_POST['latitude'], $_POST['longitude'], $_POST['notes'], 'openai']);
+    $stmt = $pdo->prepare('INSERT INTO map_points (trip_id, point_type, name, city, latitude, longitude, notes, source, show_on_map) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    $stmt->execute([$tripIdPost, $_POST['point_type'], $_POST['name'], $_POST['city'], $_POST['latitude'], $_POST['longitude'], $_POST['notes'], 'openai', 1]);
+    redirect_to_trip($tripIdPost);
+}
+
+if ($action === 'toggle_point_map') {
+    $stmt = $pdo->prepare('UPDATE map_points SET show_on_map=? WHERE id=? AND trip_id=?');
+    $stmt->execute([isset($_POST['show_on_map']) ? 1 : 0, (int)$_POST['point_id'], $tripIdPost]);
     redirect_to_trip($tripIdPost);
 }
 
@@ -147,7 +154,8 @@ if ($tripId) {
 $totalItems = count($items);
 $packedItems = count(array_filter($items, fn($i) => (int)$i['packed'] === 1));
 $packedPercent = $totalItems ? round(($packedItems / $totalItems) * 100) : 0;
-$mapJson = json_encode($points, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+$visiblePoints = array_values(array_filter($points, fn($point) => (int)($point['show_on_map'] ?? 1) === 1));
+$mapJson = json_encode($visiblePoints, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
 
 function run_git_pull(): array
 {
@@ -682,8 +690,8 @@ function save_imported_map_point(PDO $pdo, int $tripId, array $itinerary, string
         return;
     }
 
-    $stmt = $pdo->prepare('INSERT INTO map_points (trip_id, point_type, name, address, city, latitude, longitude, notes, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
-    $stmt->execute([$tripId, $pointType, $name, $address, $city, $latitude, $longitude, $notes, 'openai-pdf']);
+    $stmt = $pdo->prepare('INSERT INTO map_points (trip_id, point_type, name, address, city, latitude, longitude, notes, source, show_on_map) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    $stmt->execute([$tripId, $pointType, $name, $address, $city, $latitude, $longitude, $notes, 'openai-pdf', 1]);
 }
 
 function response_output_text(array $data): string
@@ -989,7 +997,8 @@ function day_summary_fields(array $day): array
                         <div class="col-md-2"><input name="longitude" class="form-control" required placeholder="Longitude"></div>
                         <div class="col-md-1"><button class="btn btn-primary w-100">Add</button></div>
                         <div class="col-md-6"><input name="address" class="form-control" placeholder="Address"></div>
-                        <div class="col-md-6"><input name="notes" class="form-control" placeholder="Notes"></div>
+                        <div class="col-md-4"><input name="notes" class="form-control" placeholder="Notes"></div>
+                        <div class="col-md-2"><label class="form-check mt-2"><input name="show_on_map" class="form-check-input" type="checkbox" checked><span class="form-check-label">Show on map</span></label></div>
                     </form>
                     <?php if ($points): ?>
                         <div class="col-12 mt-3">
@@ -1006,13 +1015,20 @@ function day_summary_fields(array $day): array
                                                     <strong><?= h($point['name']) ?></strong>
                                                     <?php if (point_itinerary_date($point)): ?><span class="badge bg-orange-lt"><?= h(point_itinerary_date($point)) ?></span><?php endif; ?>
                                                     <span class="badge bg-blue-lt"><?= h($point['point_type']) ?></span>
+                                                    <span class="badge <?= (int)($point['show_on_map'] ?? 1) === 1 ? 'bg-green-lt' : 'bg-secondary-lt' ?>"><?= (int)($point['show_on_map'] ?? 1) === 1 ? 'map' : 'hidden' ?></span>
                                                     <?php if ($point['source']): ?><span class="badge bg-green-lt"><?= h($point['source']) ?></span><?php endif; ?>
                                                 </div>
                                                 <div class="text-secondary"><?= h($point['address'] ?: $point['city']) ?></div>
                                                 <?php if ($point['notes']): ?><div class="small mt-1"><?= h($point['notes']) ?></div><?php endif; ?>
                                             </div>
                                             <div class="col-auto d-flex gap-2">
-                                                <button type="button" class="btn btn-sm btn-outline-primary" onclick="focusLocation(<?= (int)$point['id'] ?>)"><i class="ti ti-map-pin me-1"></i>View</button>
+                                                <form method="post" class="d-flex align-items-center">
+                                                    <input type="hidden" name="action" value="toggle_point_map">
+                                                    <input type="hidden" name="trip_id" value="<?= $tripId ?>">
+                                                    <input type="hidden" name="point_id" value="<?= (int)$point['id'] ?>">
+                                                    <label class="form-check mb-0"><input name="show_on_map" class="form-check-input" type="checkbox" <?= (int)($point['show_on_map'] ?? 1) === 1 ? 'checked' : '' ?> onchange="this.form.submit()"><span class="form-check-label">Map</span></label>
+                                                </form>
+                                                <?php if ((int)($point['show_on_map'] ?? 1) === 1): ?><button type="button" class="btn btn-sm btn-outline-primary" onclick="focusLocation(<?= (int)$point['id'] ?>)"><i class="ti ti-map-pin me-1"></i>View</button><?php endif; ?>
                                                 <form method="post">
                                                     <input type="hidden" name="action" value="delete_point">
                                                     <input type="hidden" name="trip_id" value="<?= $tripId ?>">

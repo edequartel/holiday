@@ -29,6 +29,14 @@ function redirect_to_trip(int $tripId): void
     exit;
 }
 
+function ensure_map_points_table(PDO $pdo): void
+{
+    $columns = $pdo->query("SHOW COLUMNS FROM map_points LIKE 'show_on_map'")->fetchAll();
+    if (!$columns) {
+        $pdo->exec('ALTER TABLE map_points ADD COLUMN show_on_map TINYINT(1) NOT NULL DEFAULT 1 AFTER source');
+    }
+}
+
 function ensure_day_documents_table(PDO $pdo): void
 {
     $pdo->exec("
