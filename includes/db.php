@@ -54,3 +54,20 @@ function ensure_day_documents_table(PDO $pdo): void
         $pdo->exec('ALTER TABLE day_documents ADD COLUMN extracted_json JSON NULL AFTER notes');
     }
 }
+
+function ensure_day_links_table(PDO $pdo): void
+{
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS day_links (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          trip_id INT NOT NULL,
+          day_id INT NOT NULL,
+          title VARCHAR(255) NOT NULL,
+          url VARCHAR(1000) NOT NULL,
+          notes TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE CASCADE,
+          FOREIGN KEY (day_id) REFERENCES itinerary_days(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+}
