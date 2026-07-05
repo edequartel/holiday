@@ -20,6 +20,18 @@
 .calendar-day-card {
     height: 100%;
 }
+.calendar-day-card-has-flight {
+    background: #f8f7ff;
+    border-color: #c7d2fe;
+}
+.calendar-flight-card {
+    background: #eef2ff;
+    border-color: #a5b4fc;
+    box-shadow: inset 4px 0 0 #4f46e5;
+}
+.calendar-flight-card .card-body {
+    background: transparent;
+}
 .calendar-event {
     line-height: 1.25;
     white-space: normal;

@@ -208,7 +208,7 @@ function flight_title(array $flight): string
                                     $dayFlights = $flightsByDate[(string)$day['day_date']] ?? [];
                                     ?>
                                     <div class="col-sm-6 col-lg-4">
-                                        <a class="card card-sm calendar-day-card text-reset text-decoration-none" href="index.php?trip_id=<?= (int)$tripId ?>#day-<?= $dayId ?>">
+                                        <a class="card card-sm calendar-day-card <?= $dayFlights ? 'calendar-day-card-has-flight' : '' ?> text-reset text-decoration-none" href="index.php?trip_id=<?= (int)$tripId ?>#day-<?= $dayId ?>">
                                             <div class="card-body">
                                                 <div class="d-flex justify-content-between gap-2 align-items-start">
                                                     <div>
@@ -240,7 +240,7 @@ function flight_title(array $flight): string
                                 <?php foreach ($flightsByDate as $date => $dateFlights): ?>
                                     <?php if (isset($dayDateSet[$date])) continue; ?>
                                     <div class="col-sm-6 col-lg-4">
-                                        <a class="card card-sm calendar-day-card text-reset text-decoration-none" href="index.php?trip_id=<?= (int)$tripId ?>">
+                                        <a class="card card-sm calendar-day-card calendar-flight-card text-reset text-decoration-none" href="index.php?trip_id=<?= (int)$tripId ?>">
                                             <div class="card-body">
                                                 <div class="d-flex justify-content-between gap-2 align-items-start">
                                                     <div>
