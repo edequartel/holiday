@@ -53,9 +53,15 @@
     font-weight: 600;
 }
 .calendar-flight-event {
-    --fc-event-bg-color: #eef2ff;
-    --fc-event-border-color: #c7d2fe;
-    --fc-event-text-color: #3730a3;
+    background: #fef3c7 !important;
+    border-color: #f59e0b !important;
+    color: #92400e !important;
+}
+.fc .calendar-flight-event .fc-event-main,
+.fc .calendar-flight-event .calendar-event,
+.fc .calendar-flight-event .calendar-event-line,
+.fc .calendar-flight-event .calendar-event-title {
+    color: #92400e !important;
 }
 .calendar-flight-line {
     border-left: 3px solid #4f46e5;
