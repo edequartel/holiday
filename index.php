@@ -934,6 +934,7 @@ document.addEventListener('submit', event => {
         <div class="col-12 col-md"><h2 class="page-title"><i class="ti ti-plane-departure me-2"></i>Holiday Planner</h2><div class="text-secondary">Trips · flights · itinerary · map · OpenAI POI suggestions</div></div>
         <div class="col-12 col-md-auto d-flex flex-wrap gap-2 app-header-actions">
             <?php if ($trip): ?>
+                <a class="btn btn-outline-primary" href="calendar.php?trip_id=<?= (int)$tripId ?>"><i class="ti ti-calendar-event me-1"></i>Calendar</a>
                 <a class="btn btn-outline-primary" href="itinerary-pdf.php?trip_id=<?= (int)$tripId ?>" target="_blank" rel="noopener"><i class="ti ti-file-type-pdf me-1"></i>Itinerary PDF</a>
             <?php endif; ?>
             <form method="post" class="m-0">

@@ -14,6 +14,42 @@
 .card {
     overflow-wrap: anywhere;
 }
+.calendar-shell .card-body {
+    overflow-x: auto;
+}
+.calendar-day-card {
+    height: 100%;
+}
+.calendar-event {
+    line-height: 1.25;
+    white-space: normal;
+}
+.calendar-event-title {
+    font-weight: 600;
+}
+.calendar-event-meta,
+.calendar-event-counts {
+    font-size: 0.72rem;
+    opacity: 0.85;
+}
+.fc {
+    --fc-border-color: rgba(98, 105, 118, 0.18);
+    --fc-button-bg-color: var(--tblr-primary);
+    --fc-button-border-color: var(--tblr-primary);
+    --fc-button-hover-bg-color: #1d4ed8;
+    --fc-button-hover-border-color: #1d4ed8;
+    --fc-event-bg-color: #eef4ff;
+    --fc-event-border-color: #b6cdfb;
+    --fc-event-text-color: #1e3a8a;
+    min-width: 680px;
+}
+.fc .fc-toolbar-title {
+    font-size: 1.25rem;
+}
+.fc .fc-daygrid-event {
+    border-radius: 6px;
+    padding: 3px 5px;
+}
 .packed {
     text-decoration: line-through;
     color: #6c757d;
@@ -97,5 +133,17 @@
     .openai-thinking-box {
         align-items: flex-start;
         padding: 1rem;
+    }
+    .calendar-shell .card-body {
+        padding: 0.75rem;
+    }
+    .fc {
+        font-size: 0.82rem;
+        min-width: 620px;
+    }
+    .fc .fc-toolbar {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 0.5rem;
     }
 }
