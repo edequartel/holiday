@@ -209,12 +209,17 @@ function compare_points_by_date(array $a, array $b): int
 
 function point_sort_date(array $point): string
 {
+    return point_itinerary_date($point) ?: '9999-12-31';
+}
+
+function point_itinerary_date(array $point): string
+{
     $notes = (string)($point['notes'] ?? '');
     if (preg_match('/\d{4}-\d{2}-\d{2}/', $notes, $matches)) {
         return $matches[0];
     }
 
-    return substr((string)($point['created_at'] ?? '9999-12-31'), 0, 10);
+    return '';
 }
 
 function delete_uploaded_document_file(PDO $pdo, string $relativePath, int $deletedDayId): void
@@ -999,7 +1004,7 @@ function day_summary_fields(array $day): array
                                             <div class="col">
                                                 <div class="d-flex flex-wrap align-items-center gap-2">
                                                     <strong><?= h($point['name']) ?></strong>
-                                                    <span class="badge bg-orange-lt"><?= h(point_sort_date($point)) ?></span>
+                                                    <?php if (point_itinerary_date($point)): ?><span class="badge bg-orange-lt"><?= h(point_itinerary_date($point)) ?></span><?php endif; ?>
                                                     <span class="badge bg-blue-lt"><?= h($point['point_type']) ?></span>
                                                     <?php if ($point['source']): ?><span class="badge bg-green-lt"><?= h($point['source']) ?></span><?php endif; ?>
                                                 </div>
