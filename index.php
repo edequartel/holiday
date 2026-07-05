@@ -32,6 +32,19 @@ if ($action === 'create_trip') {
 
 $tripIdPost = (int)($_POST['trip_id'] ?? 0);
 
+if ($action === 'update_trip') {
+    $stmt = $pdo->prepare('UPDATE trips SET title=?, destination=?, start_date=?, end_date=?, notes=? WHERE id=?');
+    $stmt->execute([
+        $_POST['title'],
+        $_POST['destination'],
+        $_POST['start_date'] ?: null,
+        $_POST['end_date'] ?: null,
+        $_POST['notes'],
+        $tripIdPost,
+    ]);
+    redirect_to_trip($tripIdPost);
+}
+
 if ($action === 'import_day_pdf') {
     $_SESSION['document_import_result'] = import_day_pdf($pdo, $tripIdPost);
     redirect_to_trip($tripIdPost);
@@ -208,7 +221,7 @@ function import_day_pdf(PDO $pdo, int $tripId): array
             $dayDate,
             $itinerary['location'] ?? '',
             $itinerary['title'] ?? 'Booking details',
-            $itinerary['details'] ?? '',
+            format_imported_itinerary_details($itinerary),
             $itinerary['transport'] ?? '',
             $itinerary['hotel'] ?? '',
         ]);
@@ -248,14 +261,15 @@ function extract_itinerary_from_pdf(string $filePath, string $filename, array $t
         throw new RuntimeException('Could not read the uploaded PDF.');
     }
 
-    $prompt = "Read this booking or travel-detail PDF and create one itinerary day for a holiday planner.\n" .
+    $prompt = "Read this booking or travel-detail PDF carefully and extract every practical detail needed while traveling.\n" .
         "Trip: " . ($trip['title'] ?? '') . "\n" .
         "Destination: " . ($trip['destination'] ?? '') . "\n" .
+        "Trip travel dates: " . ($trip['start_date'] ?? '') . " to " . ($trip['end_date'] ?? '') . "\n" .
         "Selected day date: {$dayDate}\n" .
         "Extra details from user: {$extraDetails}\n\n" .
         "Return strict JSON only, no markdown. Format:\n" .
-        "{\"title\":\"short day title\",\"location\":\"city or place\",\"details\":\"times, addresses, booking references, check-in details and useful notes as readable lines\",\"transport\":\"transport summary if present\",\"hotel\":\"hotel or accommodation name if present\"}\n" .
-        "Use the selected day date as the day date. Keep important booking details, confirmation numbers, addresses and times.";
+        "{\"title\":\"short day title\",\"location\":\"city or place\",\"hotel\":\"hotel or accommodation name if present\",\"transport\":\"transport summary if present\",\"details\":\"clear human summary\",\"arrival_date\":\"YYYY-MM-DD or original text\",\"departure_date\":\"YYYY-MM-DD or original text\",\"nights\":\"number or text\",\"check_in\":\"time/window and instructions\",\"check_out\":\"time/window and instructions\",\"breakfast\":\"included/not included/time/location/details\",\"address\":\"full address\",\"confirmation\":\"booking reference/PIN/reservation number\",\"guest_name\":\"name if present\",\"room\":\"room type or unit\",\"payment\":\"paid/due/taxes/deposit/currency details\",\"cancellation\":\"deadline or policy summary\",\"contact\":\"phone/email/reception/contact details\",\"parking\":\"parking instructions/cost if present\",\"important_notes\":[\"wifi, access code, luggage, accessibility, house rules, documents to bring, local taxes, or other useful details\"]}\n" .
+        "Use the selected day date for the created itinerary day, but extract all stay dates from the PDF. Do not omit breakfast, check-in, check-out, address, confirmation numbers, payment/tax details, cancellation policy, contact details, parking, or access instructions when present. If a field is missing, use an empty string or empty array.";
 
     $payload = [
         'model' => $model,
@@ -333,6 +347,54 @@ function response_output_text(array $data): string
 
     return trim(implode("\n", $parts));
 }
+
+function format_imported_itinerary_details(array $itinerary): string
+{
+    $lines = [];
+
+    if (!empty($itinerary['details'])) {
+        $lines[] = trim((string)$itinerary['details']);
+    }
+
+    $fields = [
+        'arrival_date' => 'Arrival',
+        'departure_date' => 'Departure',
+        'nights' => 'Stay',
+        'check_in' => 'Check-in',
+        'check_out' => 'Check-out',
+        'breakfast' => 'Breakfast',
+        'address' => 'Address',
+        'confirmation' => 'Confirmation',
+        'guest_name' => 'Guest',
+        'room' => 'Room',
+        'payment' => 'Payment',
+        'cancellation' => 'Cancellation',
+        'contact' => 'Contact',
+        'parking' => 'Parking',
+    ];
+
+    foreach ($fields as $key => $label) {
+        $value = trim((string)($itinerary[$key] ?? ''));
+        if ($value !== '') {
+            $lines[] = "{$label}: {$value}";
+        }
+    }
+
+    $notes = $itinerary['important_notes'] ?? [];
+    if (is_string($notes) && trim($notes) !== '') {
+        $notes = [trim($notes)];
+    }
+    if (is_array($notes)) {
+        foreach ($notes as $note) {
+            $note = trim((string)$note);
+            if ($note !== '') {
+                $lines[] = 'Note: ' . $note;
+            }
+        }
+    }
+
+    return implode("\n", array_values(array_unique($lines)));
+}
 ?>
 <!doctype html>
 <html lang="en">
@@ -390,10 +452,22 @@ function response_output_text(array $data): string
         <?php if (!$trip): ?>
             <div class="empty"><div class="empty-icon"><i class="ti ti-map-2"></i></div><p class="empty-title">No trip yet</p><p class="empty-subtitle text-secondary">Create your first holiday plan.</p></div>
         <?php else: ?>
-            <div class="card mb-3"><div class="card-body"><div class="row align-items-center">
-                <div class="col"><h2><?= h($trip['title']) ?></h2><div class="text-secondary"><?= h($trip['destination']) ?> · <?= h($trip['start_date']) ?> to <?= h($trip['end_date']) ?></div><p class="mt-2"><?= nl2br(h($trip['notes'])) ?></p></div>
-                <div class="col-md-4"><div class="text-secondary mb-1">Packing progress</div><div class="progress progress-lg"><div class="progress-bar bg-success" style="width: <?= $packedPercent ?>%"><?= $packedPercent ?>%</div></div><div class="text-secondary mt-1"><?= $packedItems ?> / <?= $totalItems ?> packed</div></div>
-            </div></div></div>
+            <div class="card mb-3"><div class="card-body">
+                <div class="row align-items-start">
+                    <div class="col"><h2><?= h($trip['title']) ?></h2><div class="text-secondary"><?= h($trip['destination']) ?> · <?= h($trip['start_date']) ?> to <?= h($trip['end_date']) ?></div><p class="mt-2"><?= nl2br(h($trip['notes'])) ?></p></div>
+                    <div class="col-md-4"><div class="text-secondary mb-1">Packing progress</div><div class="progress progress-lg"><div class="progress-bar bg-success" style="width: <?= $packedPercent ?>%"><?= $packedPercent ?>%</div></div><div class="text-secondary mt-1"><?= $packedItems ?> / <?= $totalItems ?> packed</div></div>
+                </div>
+                <form method="post" class="row g-2 align-items-end no-print mt-3">
+                    <input type="hidden" name="action" value="update_trip">
+                    <input type="hidden" name="trip_id" value="<?= $tripId ?>">
+                    <div class="col-md-3"><label class="form-label">Trip title</label><input name="title" class="form-control" required value="<?= h($trip['title']) ?>"></div>
+                    <div class="col-md-3"><label class="form-label">Destination</label><input name="destination" class="form-control" value="<?= h($trip['destination']) ?>"></div>
+                    <div class="col-md-2"><label class="form-label">Travel from</label><input name="start_date" type="date" class="form-control" value="<?= h($trip['start_date']) ?>"></div>
+                    <div class="col-md-2"><label class="form-label">Travel to</label><input name="end_date" type="date" class="form-control" value="<?= h($trip['end_date']) ?>"></div>
+                    <div class="col-md-2"><button class="btn btn-outline-primary w-100"><i class="ti ti-device-floppy me-1"></i>Save trip</button></div>
+                    <div class="col-12"><textarea name="notes" class="form-control" rows="2" placeholder="Trip notes"><?= h($trip['notes']) ?></textarea></div>
+                </form>
+            </div></div>
 
             <div class="card mb-3"><div class="card-header"><h3 class="card-title"><i class="ti ti-map-pin me-2"></i>Map: hotels, parking and POI</h3></div><div id="map"></div>
                 <div class="card-body no-print"><div class="row g-2">
@@ -441,7 +515,7 @@ function response_output_text(array $data): string
                     <input type="hidden" name="trip_id" value="<?= $tripId ?>">
                     <div class="col-md-2"><label class="form-label">Day date</label><input name="day_date" type="date" class="form-control" required></div>
                     <div class="col-md-4"><label class="form-label">Booking PDF</label><input name="booking_pdf" type="file" accept="application/pdf,.pdf" class="form-control" required></div>
-                    <div class="col-md-4"><label class="form-label">Extra details</label><input name="extra_details" class="form-control" placeholder="Room preferences, meeting point, notes"></div>
+                    <div class="col-md-4"><label class="form-label">Extra details for OpenAI</label><input name="extra_details" class="form-control" placeholder="Room preferences, arrival time, meeting point"></div>
                     <div class="col-md-2"><button class="btn btn-outline-primary w-100"><i class="ti ti-sparkles me-1"></i>Import PDF</button></div>
                 </form>
             </div></div>
