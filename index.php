@@ -66,8 +66,20 @@ if ($action === 'cleanup_duplicate_documents') {
 }
 
 if ($action === 'add_day') {
+    $activityTime = normalize_manual_activity_time((string)($_POST['activity_time'] ?? ''));
+    $details = manual_activity_details((string)($_POST['details'] ?? ''), $activityTime);
+    $title = trim((string)($_POST['title'] ?? '')) ?: 'Activity';
     $stmt = $pdo->prepare('INSERT INTO itinerary_days (trip_id, day_date, location, title, details, transport, hotel, url) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
-    $stmt->execute([$tripIdPost, $_POST['day_date'], $_POST['location'], $_POST['title'], $_POST['details'], $_POST['transport'], $_POST['hotel'], $_POST['url']]);
+    $stmt->execute([
+        $tripIdPost,
+        $_POST['day_date'],
+        $_POST['location'] ?? '',
+        $title,
+        $details,
+        $_POST['transport'] ?? '',
+        $_POST['hotel'] ?? '',
+        $_POST['url'] ?? '',
+    ]);
     redirect_to_trip($tripIdPost);
 }
 
@@ -1223,6 +1235,36 @@ function short_display_value($value, int $limit = 220): string
     return substr($value, 0, $limit - 3) . '...';
 }
 
+function normalize_manual_activity_time(string $value): string
+{
+    $value = trim($value);
+    return preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/', $value) ? $value : '';
+}
+
+function manual_activity_details(string $details, string $activityTime): string
+{
+    $details = trim($details);
+    if ($activityTime === '') {
+        return $details;
+    }
+
+    if (preg_match('/^Activity time:/im', $details)) {
+        return $details;
+    }
+
+    return trim('Activity time: ' . $activityTime . ($details !== '' ? "\n" . $details : ''));
+}
+
+function itinerary_time_from_day(array $day): string
+{
+    $source = trim((string)($day['details'] ?? '') . ' ' . (string)($day['transport'] ?? ''));
+    if (preg_match('/\b(?:[01]?\d|2[0-3])[:.][0-5]\d\b/', $source, $matches)) {
+        return str_replace('.', ':', $matches[0]);
+    }
+
+    return '';
+}
+
 function essential_notes($notes, int $max = 4): array
 {
     if (is_string($notes) && trim($notes) !== '') {
@@ -1497,7 +1539,7 @@ document.addEventListener('submit', event => {
             </tbody></table></div><form method="post" enctype="multipart/form-data" class="card-body border-bottom no-print row g-2 align-items-end"><input type="hidden" name="action" value="import_flight_pdf"><input type="hidden" name="trip_id" value="<?= $tripId ?>"><div class="col-md-5"><label class="form-label">Import flight PDF with OpenAI</label><input name="flight_pdf" type="file" accept="application/pdf,.pdf" class="form-control" required></div><div class="col-md-5"><label class="form-label">Extra flight details</label><input name="flight_extra_details" class="form-control" placeholder="Booking code, passenger, baggage, notes"></div><div class="col-12 col-md-2"><button class="btn btn-outline-primary w-100"><i class="ti ti-sparkles me-1"></i>Import</button></div><div class="col-12 text-secondary small">OpenAI will analyse the PDF and add each flight segment to the flight list.</div></form><form method="post" class="card-body no-print row g-2"><input type="hidden" name="action" value="add_flight"><input type="hidden" name="trip_id" value="<?= $tripId ?>"><div class="col-md-2"><input name="flight_date" type="date" class="form-control"></div><div class="col-md-2"><input name="airline" class="form-control" placeholder="Airline"></div><div class="col-md-2"><input name="flight_number" class="form-control" placeholder="Flight no."></div><div class="col-md-2"><input name="departure_airport" class="form-control" placeholder="From"></div><div class="col-md-2"><input name="arrival_airport" class="form-control" placeholder="To"></div><div class="col-md-1"><input name="departure_time" type="time" class="form-control"></div><div class="col-md-1"><input name="arrival_time" type="time" class="form-control"></div><div class="col-12 col-md-10"><input name="notes" class="form-control" placeholder="Notes"></div><div class="col-12 col-md-2"><button class="btn btn-primary w-100">Add flight</button></div></form></div>
 
             <div class="card mb-3"><div class="card-header"><h3 class="card-title"><i class="ti ti-calendar-event me-2"></i>Itinerary</h3></div><div class="list-group list-group-flush itinerary-card-list">
-                <?php foreach ($days as $d): $hasDocuments = !empty($documentsByDay[(int)$d['id']]); ?><div id="day-<?= (int)$d['id'] ?>" class="list-group-item itinerary-day"><div class="row g-2"><div class="col-12 col-md"><div class="itinerary-day-title"><?= h($d['day_date']) ?> · <?= h($d['title']) ?></div><div class="text-secondary"><?= h($d['location']) ?></div><?php if (!$hasDocuments && trim((string)$d['details']) !== ''): ?><p class="mt-2"><?= nl2br(h($d['details'])) ?></p><?php endif; ?><div class="itinerary-badges"><?php if (trim((string)$d['transport']) !== ''): ?><span class="badge bg-blue-lt">Transport: <?= h($d['transport']) ?></span><?php endif; ?><?php if (trim((string)$d['hotel']) !== ''): ?><span class="badge bg-green-lt">Hotel: <?= h($d['hotel']) ?></span><?php endif; ?><?php if (!empty($d['url'])): ?><a class="badge bg-purple-lt text-decoration-none" href="<?= h($d['url']) ?>" target="_blank" rel="noopener">URL</a><?php endif; ?></div>
+                <?php foreach ($days as $d): $hasDocuments = !empty($documentsByDay[(int)$d['id']]); $activityTime = itinerary_time_from_day($d); ?><div id="day-<?= (int)$d['id'] ?>" class="list-group-item itinerary-day"><div class="row g-2"><div class="col-12 col-md"><div class="itinerary-day-title"><?= h($d['day_date']) ?> · <?= h($d['title']) ?></div><div class="text-secondary"><?= h($d['location']) ?></div><?php if (!$hasDocuments && trim((string)$d['details']) !== ''): ?><p class="mt-2"><?= nl2br(h($d['details'])) ?></p><?php endif; ?><div class="itinerary-badges"><?php if ($activityTime !== ''): ?><span class="badge bg-orange-lt">Time: <?= h($activityTime) ?></span><?php endif; ?><?php if (trim((string)$d['transport']) !== ''): ?><span class="badge bg-blue-lt">Transport: <?= h($d['transport']) ?></span><?php endif; ?><?php if (trim((string)$d['hotel']) !== ''): ?><span class="badge bg-green-lt">Hotel: <?= h($d['hotel']) ?></span><?php endif; ?><?php if (!empty($d['url'])): ?><a class="badge bg-purple-lt text-decoration-none" href="<?= h($d['url']) ?>" target="_blank" rel="noopener">URL</a><?php endif; ?></div>
                     <?php if (!empty($documentsByDay[(int)$d['id']])): ?><div class="mt-3 no-print">
                         <?php foreach ($documentsByDay[(int)$d['id']] as $document): $bookingDetails = decoded_booking_details($document); ?>
                             <div class="border rounded p-3 mb-2">
@@ -1628,7 +1670,7 @@ document.addEventListener('submit', event => {
                     </form>
                 </div><div class="col-12 col-md-auto no-print"><form method="post"><input type="hidden" name="action" value="delete_day"><input type="hidden" name="trip_id" value="<?= $tripId ?>"><input type="hidden" name="day_id" value="<?= (int)$d['id'] ?>"><button class="btn btn-sm btn-outline-danger app-delete-day"><i class="ti ti-trash"></i></button></form></div></div></div><?php endforeach; ?>
             </div><div class="card-body no-print">
-                <form method="post" class="row g-2"><input type="hidden" name="action" value="add_day"><input type="hidden" name="trip_id" value="<?= $tripId ?>"><div class="col-md-2"><input name="day_date" type="date" class="form-control" required></div><div class="col-md-3"><input name="location" class="form-control" placeholder="Location"></div><div class="col-md-4"><input name="title" class="form-control" placeholder="Day title"></div><div class="col-md-3"><input name="hotel" class="form-control" placeholder="Hotel"></div><div class="col-md-4"><input name="transport" class="form-control" placeholder="Transport"></div><div class="col-md-8"><input name="url" type="url" class="form-control" placeholder="Hotel or activity URL"></div><div class="col-md-8"><textarea name="details" class="form-control" rows="2" placeholder="Plans, sights, restaurants, notes"></textarea></div><div class="col-12"><button class="btn btn-primary">Add day</button></div></form>
+                <form method="post" class="row g-2"><input type="hidden" name="action" value="add_day"><input type="hidden" name="trip_id" value="<?= $tripId ?>"><div class="col-md-2"><input name="day_date" type="date" class="form-control" required></div><div class="col-md-2"><input name="activity_time" type="time" class="form-control" aria-label="Activity time"></div><div class="col-md-3"><input name="location" class="form-control" placeholder="Location"></div><div class="col-md-3"><input name="title" class="form-control" placeholder="Activity title"></div><div class="col-md-2"><input name="hotel" class="form-control" placeholder="Hotel"></div><div class="col-md-4"><input name="transport" class="form-control" placeholder="Transport"></div><div class="col-md-8"><input name="url" type="url" class="form-control" placeholder="Hotel or activity URL"></div><div class="col-md-8"><textarea name="details" class="form-control" rows="2" placeholder="Plans, sights, restaurants, notes"></textarea></div><div class="col-12"><button class="btn btn-primary">Add activity</button></div></form>
                 <?php if ($days): ?>
                     <hr>
                     <form method="post" class="row g-2 align-items-end">

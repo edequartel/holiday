@@ -41,6 +41,7 @@ $linkCounts = day_count_map($stmt->fetchAll());
 $events = [];
 foreach ($days as $day) {
     $dateRange = calendar_day_date_range($day, $documentsByDay[(int)$day['id']] ?? [], $days);
+    $activityTime = calendar_time_from_day($day);
     $eventProps = [
         'id' => (string)$day['id'],
         'title' => trim((string)($day['title'] ?? '')) ?: 'Planned day',
@@ -52,7 +53,7 @@ foreach ($days as $day) {
             'hotel' => (string)($day['hotel'] ?? ''),
             'url' => (string)($day['url'] ?? ''),
             'transport' => (string)($day['transport'] ?? ''),
-            'time' => calendar_time_from_day($day),
+            'time' => $activityTime,
             'dateRange' => $dateRange['label'],
             'details' => short_calendar_text((string)($day['details'] ?? ''), 120),
             'documents' => $documentCounts[(int)$day['id']] ?? 0,
@@ -62,6 +63,9 @@ foreach ($days as $day) {
     if ($dateRange['endExclusive'] !== '') {
         $eventProps['end'] = $dateRange['endExclusive'];
         $eventProps['classNames'] = ['calendar-multiday-event'];
+    } elseif ($activityTime !== '') {
+        $eventProps['start'] = $dateRange['start'] . 'T' . $activityTime . ':00';
+        $eventProps['allDay'] = false;
     }
 
     $events[] = $eventProps;
