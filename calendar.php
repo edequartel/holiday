@@ -30,7 +30,9 @@ $dayDateSet = array_fill_keys(array_map(fn($day) => (string)$day['day_date'], $d
 
 $stmt = $pdo->prepare('SELECT * FROM day_documents WHERE trip_id=? ORDER BY created_at ASC, id ASC');
 $stmt->execute([$tripId]);
-$documentCounts = count_unique_documents_by_day($stmt->fetchAll());
+$documents = $stmt->fetchAll();
+$documentsByDay = group_unique_documents_by_day($documents);
+$documentCounts = count_unique_documents_by_day($documents);
 
 $stmt = $pdo->prepare('SELECT day_id, COUNT(*) AS total FROM day_links WHERE trip_id=? GROUP BY day_id');
 $stmt->execute([$tripId]);
@@ -38,10 +40,11 @@ $linkCounts = day_count_map($stmt->fetchAll());
 
 $events = [];
 foreach ($days as $day) {
-    $events[] = [
+    $dateRange = calendar_day_date_range($day, $documentsByDay[(int)$day['id']] ?? []);
+    $eventProps = [
         'id' => (string)$day['id'],
         'title' => trim((string)($day['title'] ?? '')) ?: 'Planned day',
-        'start' => (string)$day['day_date'],
+        'start' => $dateRange['start'],
         'allDay' => true,
         'url' => 'index.php?trip_id=' . $tripId . '#day-' . (int)$day['id'],
         'extendedProps' => [
@@ -50,11 +53,18 @@ foreach ($days as $day) {
             'url' => (string)($day['url'] ?? ''),
             'transport' => (string)($day['transport'] ?? ''),
             'time' => calendar_time_from_day($day),
+            'dateRange' => $dateRange['label'],
             'details' => short_calendar_text((string)($day['details'] ?? ''), 120),
             'documents' => $documentCounts[(int)$day['id']] ?? 0,
             'links' => $linkCounts[(int)$day['id']] ?? 0,
         ],
     ];
+    if ($dateRange['endExclusive'] !== '') {
+        $eventProps['end'] = $dateRange['endExclusive'];
+        $eventProps['classNames'] = ['calendar-multiday-event'];
+    }
+
+    $events[] = $eventProps;
 }
 
 foreach ($flights as $flight) {
@@ -67,10 +77,11 @@ foreach ($flights as $flight) {
         $flight['flight_number'] ?? '',
     ]))) ?: 'Flight';
 
-    $events[] = [
+    $dateRange = calendar_flight_date_range($flight);
+    $eventProps = [
         'id' => 'flight-' . (int)$flight['id'],
         'title' => $flightTitle,
-        'start' => (string)$flight['flight_date'],
+        'start' => $dateRange['start'],
         'allDay' => true,
         'url' => 'index.php?trip_id=' . $tripId,
         'classNames' => ['calendar-flight-event'],
@@ -78,9 +89,16 @@ foreach ($flights as $flight) {
             'type' => 'Flight',
             'route' => trim((string)($flight['departure_airport'] ?? '') . ' → ' . (string)($flight['arrival_airport'] ?? '')),
             'time' => flight_time_range($flight),
+            'dateRange' => $dateRange['label'],
             'details' => short_calendar_text((string)($flight['notes'] ?? ''), 100),
         ],
     ];
+    if ($dateRange['endExclusive'] !== '') {
+        $eventProps['end'] = $dateRange['endExclusive'];
+        $eventProps['classNames'][] = 'calendar-multiday-flight-event';
+    }
+
+    $events[] = $eventProps;
 }
 
 $eventsJson = json_encode($events, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
@@ -108,6 +126,95 @@ function day_count_map(array $rows): array
     }
 
     return $counts;
+}
+
+function calendar_day_date_range(array $day, array $documents): array
+{
+    $start = valid_calendar_date((string)($day['day_date'] ?? '')) ?: date('Y-m-d');
+    $endInclusive = '';
+
+    foreach ($documents as $document) {
+        $details = decoded_document_details($document);
+        if (!$details) {
+            continue;
+        }
+
+        $arrival = valid_calendar_date((string)($details['arrival_date'] ?? $details['day_date'] ?? ''));
+        $departure = valid_calendar_date((string)($details['departure_date'] ?? ''));
+        if ($arrival !== '' && $arrival < $start) {
+            $start = $arrival;
+        }
+        if ($departure !== '' && $departure > $endInclusive) {
+            $endInclusive = $departure;
+        }
+    }
+
+    if ($endInclusive === '') {
+        $endInclusive = calendar_labeled_date_from_text((string)($day['details'] ?? ''), 'Departure');
+    }
+    $arrivalFromText = calendar_labeled_date_from_text((string)($day['details'] ?? ''), 'Arrival');
+    if ($arrivalFromText !== '' && $arrivalFromText < $start) {
+        $start = $arrivalFromText;
+    }
+
+    return calendar_range_payload($start, $endInclusive);
+}
+
+function calendar_flight_date_range(array $flight): array
+{
+    $start = valid_calendar_date((string)($flight['flight_date'] ?? '')) ?: date('Y-m-d');
+    $arrivalDate = calendar_labeled_date_from_text((string)($flight['notes'] ?? ''), 'Arrival');
+    if ($arrivalDate === '') {
+        $departureTime = trim((string)($flight['departure_time'] ?? ''));
+        $arrivalTime = trim((string)($flight['arrival_time'] ?? ''));
+        if ($departureTime !== '' && $arrivalTime !== '' && $arrivalTime < $departureTime) {
+            $arrivalDate = calendar_add_days($start, 1);
+        }
+    }
+
+    return calendar_range_payload($start, $arrivalDate);
+}
+
+function calendar_range_payload(string $start, string $endInclusive): array
+{
+    if ($endInclusive === '' || $endInclusive <= $start) {
+        return [
+            'start' => $start,
+            'endExclusive' => '',
+            'label' => '',
+        ];
+    }
+
+    return [
+        'start' => $start,
+        'endExclusive' => calendar_add_days($endInclusive, 1),
+        'label' => $start . ' to ' . $endInclusive,
+    ];
+}
+
+function calendar_labeled_date_from_text(string $text, string $label): string
+{
+    if (preg_match('/^' . preg_quote($label, '/') . ':\s*(\d{4}-\d{2}-\d{2})\b/im', $text, $matches)) {
+        return valid_calendar_date($matches[1]);
+    }
+
+    return '';
+}
+
+function valid_calendar_date(string $value): string
+{
+    $value = trim($value);
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) {
+        return '';
+    }
+
+    $date = DateTimeImmutable::createFromFormat('!Y-m-d', $value);
+    return $date && $date->format('Y-m-d') === $value ? $value : '';
+}
+
+function calendar_add_days(string $date, int $days): string
+{
+    return (new DateTimeImmutable($date))->modify('+' . $days . ' days')->format('Y-m-d');
 }
 
 function short_calendar_text(string $value, int $limit = 120): string
@@ -206,13 +313,14 @@ function flight_title(array $flight): string
                                     $documents = $documentCounts[$dayId] ?? 0;
                                     $links = $linkCounts[$dayId] ?? 0;
                                     $dayFlights = $flightsByDate[(string)$day['day_date']] ?? [];
+                                    $dateRange = calendar_day_date_range($day, $documentsByDay[$dayId] ?? []);
                                     ?>
                                     <div class="col-sm-6 col-lg-4">
                                         <a class="card card-sm calendar-day-card <?= $dayFlights ? 'calendar-day-card-has-flight' : '' ?> text-reset text-decoration-none" href="index.php?trip_id=<?= (int)$tripId ?>#day-<?= $dayId ?>">
                                             <div class="card-body">
                                                 <div class="d-flex justify-content-between gap-2 align-items-start">
                                                     <div>
-                                                        <div class="text-secondary small">Day <?= $index + 1 ?> · <?= h($day['day_date']) ?></div>
+                                                        <div class="text-secondary small">Day <?= $index + 1 ?> · <?= h($dateRange['label'] ?: $day['day_date']) ?></div>
                                                         <h3 class="h4 mb-1"><?= h($day['title'] ?: 'Planned day') ?></h3>
                                                     </div>
                                                     <span class="badge bg-blue-lt"><?= h(date('D', strtotime((string)$day['day_date']))) ?></span>
@@ -312,6 +420,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 ['URL', props.url],
                 ['Transport', props.transport],
                 ['Time', props.time],
+                ['Dates', props.dateRange],
                 ['Details', props.details],
                 ['Documents', props.documents ? `${props.documents}` : ''],
                 ['Links', props.links ? `${props.links}` : '']

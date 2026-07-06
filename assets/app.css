@@ -52,6 +52,17 @@
 .calendar-event-line span {
     font-weight: 600;
 }
+.calendar-multiday-event {
+    background: #ecfdf3 !important;
+    border-color: #86efac !important;
+    color: #166534 !important;
+}
+.fc .calendar-multiday-event .fc-event-main,
+.fc .calendar-multiday-event .calendar-event,
+.fc .calendar-multiday-event .calendar-event-line,
+.fc .calendar-multiday-event .calendar-event-title {
+    color: #166534 !important;
+}
 .calendar-flight-event {
     background: #fef3c7 !important;
     border-color: #f59e0b !important;
