@@ -88,6 +88,41 @@
     max-width: 8rem;
     min-width: 6rem;
 }
+.app-flights-table {
+    table-layout: fixed;
+}
+.app-flight-date-col {
+    width: 10.5rem;
+}
+.app-flight-number-col {
+    width: 15rem;
+}
+.app-flight-time-col {
+    width: 14rem;
+}
+.app-flight-action-col {
+    width: 4rem;
+}
+.app-flights-table th,
+.app-flights-table td {
+    overflow-wrap: normal;
+    word-break: normal;
+}
+.app-flight-date,
+.app-flight-time {
+    white-space: nowrap;
+}
+.app-flight-route {
+    line-height: 1.35;
+    overflow-wrap: break-word;
+}
+.app-flight-number-form {
+    max-width: 11rem;
+}
+.app-flight-actions {
+    text-align: right;
+    white-space: nowrap;
+}
 .fc {
     --fc-border-color: rgba(98, 105, 118, 0.18);
     --fc-button-bg-color: var(--tblr-primary);
