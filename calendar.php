@@ -40,7 +40,7 @@ $linkCounts = day_count_map($stmt->fetchAll());
 
 $events = [];
 foreach ($days as $day) {
-    $dateRange = calendar_day_date_range($day, $documentsByDay[(int)$day['id']] ?? []);
+    $dateRange = calendar_day_date_range($day, $documentsByDay[(int)$day['id']] ?? [], $days);
     $eventProps = [
         'id' => (string)$day['id'],
         'title' => trim((string)($day['title'] ?? '')) ?: 'Planned day',
@@ -128,9 +128,10 @@ function day_count_map(array $rows): array
     return $counts;
 }
 
-function calendar_day_date_range(array $day, array $documents): array
+function calendar_day_date_range(array $day, array $documents, array $allDays): array
 {
-    $start = valid_calendar_date((string)($day['day_date'] ?? '')) ?: date('Y-m-d');
+    $dayDate = valid_calendar_date((string)($day['day_date'] ?? '')) ?: date('Y-m-d');
+    $start = $dayDate;
     $endInclusive = '';
 
     foreach ($documents as $document) {
@@ -157,7 +158,49 @@ function calendar_day_date_range(array $day, array $documents): array
         $start = $arrivalFromText;
     }
 
+    if ($endInclusive !== '' && calendar_range_crosses_different_hotel($day, $start, $endInclusive, $allDays)) {
+        return calendar_range_payload($dayDate, '');
+    }
+
     return calendar_range_payload($start, $endInclusive);
+}
+
+function calendar_range_crosses_different_hotel(array $day, string $start, string $endInclusive, array $allDays): bool
+{
+    $currentHotel = normalize_calendar_hotel((string)($day['hotel'] ?? ''));
+    if ($currentHotel === '' || $endInclusive === '' || $endInclusive <= $start) {
+        return false;
+    }
+
+    $dayDate = valid_calendar_date((string)($day['day_date'] ?? ''));
+    foreach ($allDays as $candidate) {
+        $candidateDate = valid_calendar_date((string)($candidate['day_date'] ?? ''));
+        if ($candidateDate === '' || $candidateDate < $start || $candidateDate > $endInclusive || $candidateDate === $dayDate) {
+            continue;
+        }
+
+        $candidateHotel = normalize_calendar_hotel((string)($candidate['hotel'] ?? ''));
+        if ($candidateHotel !== '' && $candidateHotel !== $currentHotel) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function normalize_calendar_hotel(string $hotel): string
+{
+    $hotel = strtolower(trim(preg_replace('/\s+/', ' ', $hotel)));
+    if ($hotel === '') {
+        return '';
+    }
+
+    $converted = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $hotel);
+    if (is_string($converted) && $converted !== '') {
+        $hotel = $converted;
+    }
+
+    return preg_replace('/[^a-z0-9]+/', '', $hotel) ?: '';
 }
 
 function calendar_flight_date_range(array $flight): array
@@ -313,7 +356,7 @@ function flight_title(array $flight): string
                                     $documents = $documentCounts[$dayId] ?? 0;
                                     $links = $linkCounts[$dayId] ?? 0;
                                     $dayFlights = $flightsByDate[(string)$day['day_date']] ?? [];
-                                    $dateRange = calendar_day_date_range($day, $documentsByDay[$dayId] ?? []);
+                                    $dateRange = calendar_day_date_range($day, $documentsByDay[$dayId] ?? [], $days);
                                     ?>
                                     <div class="col-sm-6 col-lg-4">
                                         <a class="card card-sm calendar-day-card <?= $dayFlights ? 'calendar-day-card-has-flight' : '' ?> text-reset text-decoration-none" href="index.php?trip_id=<?= (int)$tripId ?>#day-<?= $dayId ?>">
