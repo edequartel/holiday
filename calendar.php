@@ -106,7 +106,6 @@ foreach ($flights as $flight) {
 }
 
 $eventsJson = json_encode($events, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
-$initialDate = $trip['start_date'] ?: ($days[0]['day_date'] ?? date('Y-m-d'));
 
 function flights_by_date(array $flights): array
 {
@@ -435,7 +434,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const events = <?= $eventsJson ?: '[]' ?>;
     const calendar = new FullCalendar.Calendar(calendarEl, {
         initialView: 'dayGridMonth',
-        initialDate: <?= json_encode($initialDate) ?>,
         height: 'auto',
         firstDay: 1,
         dayMaxEvents: 3,
