@@ -94,6 +94,7 @@ function calendar_pdf_items_by_date(array $days, array $flights, array $document
             'type' => 'day',
             'title' => trim((string)($day['title'] ?? '')) ?: 'Planned day',
             'location' => trim((string)($day['location'] ?? '')),
+            'accommodation' => trim((string)($day['hotel'] ?? '')),
             'time' => calendar_time_from_day($day),
             'range' => $start === $end ? '' : $start . ' to ' . $end,
         ];
@@ -245,6 +246,7 @@ function render_calendar_pdf_month(array $trip, string $selectedMonth, DateTimeI
                                         <?php if (($item['time'] ?? '') !== ''): ?><div class="item-meta"><?= h($item['time']) ?></div><?php endif; ?>
                                         <?php if (($item['route'] ?? '') !== ''): ?><div class="item-meta"><?= h($item['route']) ?></div><?php endif; ?>
                                         <?php if (($item['location'] ?? '') !== ''): ?><div class="item-meta"><?= h($item['location']) ?></div><?php endif; ?>
+                                        <?php if (($item['accommodation'] ?? '') !== ''): ?><div class="item-meta">Stay: <?= h($item['accommodation']) ?></div><?php endif; ?>
                                         <?php if (($item['range'] ?? '') !== ''): ?><div class="item-meta"><?= h($item['range']) ?></div><?php endif; ?>
                                     </div>
                                 <?php endforeach; ?>

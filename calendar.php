@@ -264,7 +264,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         },
         datesSet(info) {
-            const month = info.view.currentStart.toISOString().slice(0, 7);
+            const month = localMonthKey(info.view.currentStart);
             const pdfUrl = new URL('calendar-pdf.php', window.location.href);
             pdfUrl.searchParams.set('trip_id', '<?= (int)$tripId ?>');
             pdfUrl.searchParams.set('month', month);
@@ -304,6 +304,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function escapeHtml(value) {
     return String(value).replace(/[&<>'"]/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[character]));
+}
+
+function localMonthKey(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    return `${year}-${month}`;
 }
 </script>
 </body>
