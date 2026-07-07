@@ -32,7 +32,7 @@ if (!$trip) {
 
 $selectedMonth = valid_calendar_month((string)($_GET['month'] ?? '')) ?: date('Y-m');
 $monthStart = new DateTimeImmutable($selectedMonth . '-01');
-$monthEnd = $monthStart->modify('last day of this month');
+$nextMonthStart = $monthStart->modify('first day of next month');
 
 $stmt = $pdo->prepare('SELECT * FROM itinerary_days WHERE trip_id=? ORDER BY day_date ASC, id ASC');
 $stmt->execute([$tripId]);
@@ -46,14 +46,20 @@ $stmt = $pdo->prepare('SELECT * FROM day_documents WHERE trip_id=? ORDER BY crea
 $stmt->execute([$tripId]);
 $documents = $stmt->fetchAll();
 $documentsByDay = group_unique_documents_by_day($documents);
-$documentCounts = count_unique_documents_by_day($documents);
 
-$stmt = $pdo->prepare('SELECT day_id, COUNT(*) AS total FROM day_links WHERE trip_id=? GROUP BY day_id');
-$stmt->execute([$tripId]);
-$linkCounts = day_count_map($stmt->fetchAll());
-
-$itemsByDate = calendar_pdf_items_by_date($days, $flights, $documentsByDay, $documentCounts, $linkCounts, $monthStart, $monthEnd);
-$html = render_calendar_pdf_html($trip, $selectedMonth, $monthStart, $itemsByDate);
+$months = [
+    [
+        'month' => $selectedMonth,
+        'start' => $monthStart,
+        'itemsByDate' => calendar_pdf_items_by_date($days, $flights, $documentsByDay, $monthStart),
+    ],
+    [
+        'month' => $nextMonthStart->format('Y-m'),
+        'start' => $nextMonthStart,
+        'itemsByDate' => calendar_pdf_items_by_date($days, $flights, $documentsByDay, $nextMonthStart),
+    ],
+];
+$html = render_calendar_pdf_html($trip, $months);
 
 $options = new Options();
 $options->set('isRemoteEnabled', true);
@@ -65,11 +71,12 @@ $dompdf->loadHtml($html, 'UTF-8');
 $dompdf->setPaper('A4', 'landscape');
 $dompdf->render();
 
-$filename = safe_pdf_filename(($trip['title'] ?: 'trip') . '-calendar-' . $selectedMonth . '.pdf');
+$filename = safe_pdf_filename(($trip['title'] ?: 'trip') . '-calendar-' . $selectedMonth . '-' . $nextMonthStart->format('Y-m') . '.pdf');
 $dompdf->stream($filename, ['Attachment' => true]);
 
-function calendar_pdf_items_by_date(array $days, array $flights, array $documentsByDay, array $documentCounts, array $linkCounts, DateTimeImmutable $monthStart, DateTimeImmutable $monthEnd): array
+function calendar_pdf_items_by_date(array $days, array $flights, array $documentsByDay, DateTimeImmutable $monthStart): array
 {
+    $monthEnd = $monthStart->modify('last day of this month');
     $itemsByDate = [];
     foreach ($days as $day) {
         $dateRange = calendar_day_date_range($day, $documentsByDay[(int)$day['id']] ?? [], $days);
@@ -87,12 +94,8 @@ function calendar_pdf_items_by_date(array $days, array $flights, array $document
             'type' => 'day',
             'title' => trim((string)($day['title'] ?? '')) ?: 'Planned day',
             'location' => trim((string)($day['location'] ?? '')),
-            'hotel' => trim((string)($day['hotel'] ?? '')),
-            'transport' => trim((string)($day['transport'] ?? '')),
             'time' => calendar_time_from_day($day),
-            'details' => short_calendar_text((string)($day['details'] ?? ''), 95),
-            'documents' => $documentCounts[(int)$day['id']] ?? 0,
-            'links' => $linkCounts[(int)$day['id']] ?? 0,
+            'range' => $start === $end ? '' : $start . ' to ' . $end,
         ];
         calendar_pdf_add_item_to_dates($itemsByDate, $start, $end, $monthStart, $monthEnd, $item);
     }
@@ -118,7 +121,7 @@ function calendar_pdf_items_by_date(array $days, array $flights, array $document
             'title' => flight_title($flight),
             'route' => trim((string)($flight['departure_airport'] ?? '') . ' to ' . (string)($flight['arrival_airport'] ?? '')),
             'time' => flight_time_range($flight),
-            'details' => short_calendar_text((string)($flight['notes'] ?? ''), 85),
+            'range' => $start === $end ? '' : $start . ' to ' . $end,
         ];
         calendar_pdf_add_item_to_dates($itemsByDate, $start, $end, $monthStart, $monthEnd, $item);
     }
@@ -154,7 +157,48 @@ function calendar_pdf_add_item_to_dates(array &$itemsByDate, string $start, stri
     }
 }
 
-function render_calendar_pdf_html(array $trip, string $selectedMonth, DateTimeImmutable $monthStart, array $itemsByDate): string
+function render_calendar_pdf_html(array $trip, array $months): string
+{
+    ob_start();
+    ?>
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <style>
+        @page { margin: 18px 20px; }
+        body { color: #1f2937; font-family: DejaVu Sans, sans-serif; font-size: 8px; line-height: 1.18; margin: 0; }
+        h1, h2 { margin: 0; }
+        h1 { color: #111827; font-size: 18px; line-height: 1.05; }
+        h2 { color: #1d4ed8; font-size: 13px; margin-top: 2px; }
+        .calendar-page { page-break-after: always; page-break-inside: avoid; }
+        .calendar-page:last-child { page-break-after: auto; }
+        .header { border-bottom: 2px solid #2563eb; margin-bottom: 6px; padding-bottom: 5px; }
+        .subtitle { color: #64748b; font-size: 8px; margin-top: 3px; }
+        table.calendar { border-collapse: collapse; table-layout: fixed; width: 100%; }
+        .calendar th { background: #e8f0fb; border: 1px solid #cbd8ea; color: #334155; font-size: 8px; letter-spacing: .04em; padding: 4px 3px; text-align: center; text-transform: uppercase; }
+        .calendar td { border: 1px solid #cbd8ea; height: 76px; padding: 3px; vertical-align: top; width: 14.285%; }
+        .empty { background: #f8fafc; }
+        .day-number { color: #111827; font-size: 10px; font-weight: bold; margin-bottom: 2px; }
+        .item { border-left: 2px solid #2563eb; margin-bottom: 2px; padding: 1px 0 1px 3px; page-break-inside: avoid; }
+        .item.flight { border-left-color: #f59e0b; }
+        .item-title { font-weight: bold; }
+        .item-meta { color: #4b5563; margin-top: 0; }
+        .more { color: #64748b; font-size: 7px; margin-top: 1px; }
+        .footer { color: #64748b; font-size: 7px; margin-top: 4px; text-align: right; }
+    </style>
+</head>
+<body>
+    <?php foreach ($months as $month): ?>
+        <?php render_calendar_pdf_month($trip, (string)$month['month'], $month['start'], $month['itemsByDate']); ?>
+    <?php endforeach; ?>
+</body>
+</html>
+    <?php
+    return ob_get_clean();
+}
+
+function render_calendar_pdf_month(array $trip, string $selectedMonth, DateTimeImmutable $monthStart, array $itemsByDate): void
 {
     $monthLabel = $monthStart->format('F Y');
     $firstWeekday = (int)$monthStart->format('N');
@@ -170,38 +214,12 @@ function render_calendar_pdf_html(array $trip, string $selectedMonth, DateTimeIm
         $cells[] = null;
     }
 
-    ob_start();
     ?>
-<!doctype html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <style>
-        @page { margin: 22px 24px; }
-        body { color: #1f2937; font-family: DejaVu Sans, sans-serif; font-size: 9px; line-height: 1.25; margin: 0; }
-        h1, h2 { margin: 0; }
-        h1 { color: #111827; font-size: 24px; line-height: 1.1; }
-        h2 { color: #1d4ed8; font-size: 15px; margin-top: 4px; }
-        .header { border-bottom: 3px solid #2563eb; margin-bottom: 12px; padding-bottom: 10px; }
-        .subtitle { color: #64748b; font-size: 10px; margin-top: 5px; }
-        table.calendar { border-collapse: collapse; table-layout: fixed; width: 100%; }
-        .calendar th { background: #e8f0fb; border: 1px solid #cbd8ea; color: #334155; font-size: 9px; letter-spacing: .05em; padding: 6px 4px; text-align: center; text-transform: uppercase; }
-        .calendar td { border: 1px solid #cbd8ea; height: 101px; padding: 5px; vertical-align: top; width: 14.285%; }
-        .empty { background: #f8fafc; }
-        .day-number { color: #111827; font-size: 13px; font-weight: bold; margin-bottom: 4px; }
-        .item { border-left: 3px solid #2563eb; margin-bottom: 4px; padding: 2px 0 2px 4px; page-break-inside: avoid; }
-        .item.flight { border-left-color: #f59e0b; }
-        .item-title { font-weight: bold; }
-        .item-meta { color: #4b5563; margin-top: 1px; }
-        .muted { color: #64748b; }
-        .footer { color: #64748b; font-size: 8px; margin-top: 8px; text-align: right; }
-    </style>
-</head>
-<body>
+<div class="calendar-page">
     <div class="header">
         <h1><?= h($trip['title'] ?: 'Holiday calendar') ?></h1>
         <h2><?= h($monthLabel) ?></h2>
-        <div class="subtitle"><?= h($trip['destination'] ?? '') ?> · selected month <?= h($selectedMonth) ?></div>
+        <div class="subtitle"><?= h($trip['destination'] ?? '') ?> &middot; month <?= h($selectedMonth) ?></div>
     </div>
 
     <table class="calendar">
@@ -218,20 +236,19 @@ function render_calendar_pdf_html(array $trip, string $selectedMonth, DateTimeIm
                             <td class="empty"></td>
                         <?php else: ?>
                             <?php $dateKey = $date->format('Y-m-d'); ?>
+                            <?php $dayItems = $itemsByDate[$dateKey] ?? []; ?>
                             <td>
                                 <div class="day-number"><?= h($date->format('j')) ?></div>
-                                <?php foreach ($itemsByDate[$dateKey] ?? [] as $item): ?>
+                                <?php foreach (array_slice($dayItems, 0, 4) as $item): ?>
                                     <div class="item <?= h($item['type']) ?>">
                                         <div class="item-title"><?= h($item['title']) ?></div>
                                         <?php if (($item['time'] ?? '') !== ''): ?><div class="item-meta"><?= h($item['time']) ?></div><?php endif; ?>
                                         <?php if (($item['route'] ?? '') !== ''): ?><div class="item-meta"><?= h($item['route']) ?></div><?php endif; ?>
                                         <?php if (($item['location'] ?? '') !== ''): ?><div class="item-meta"><?= h($item['location']) ?></div><?php endif; ?>
-                                        <?php if (($item['hotel'] ?? '') !== ''): ?><div class="item-meta">Hotel: <?= h($item['hotel']) ?></div><?php endif; ?>
-                                        <?php if (($item['transport'] ?? '') !== ''): ?><div class="item-meta">Transport: <?= h($item['transport']) ?></div><?php endif; ?>
-                                        <?php if (($item['details'] ?? '') !== ''): ?><div class="muted"><?= h($item['details']) ?></div><?php endif; ?>
-                                        <?php if (($item['documents'] ?? 0) || ($item['links'] ?? 0)): ?><div class="muted"><?= (int)($item['documents'] ?? 0) ?> docs · <?= (int)($item['links'] ?? 0) ?> links</div><?php endif; ?>
+                                        <?php if (($item['range'] ?? '') !== ''): ?><div class="item-meta"><?= h($item['range']) ?></div><?php endif; ?>
                                     </div>
                                 <?php endforeach; ?>
+                                <?php if (count($dayItems) > 4): ?><div class="more">+<?= count($dayItems) - 4 ?> more</div><?php endif; ?>
                             </td>
                         <?php endif; ?>
                     <?php endforeach; ?>
@@ -240,8 +257,6 @@ function render_calendar_pdf_html(array $trip, string $selectedMonth, DateTimeIm
         </tbody>
     </table>
     <div class="footer">Generated from Holiday Planner on <?= h(date('Y-m-d H:i')) ?></div>
-</body>
-</html>
-    <?php
-    return ob_get_clean();
+</div>
+<?php
 }
