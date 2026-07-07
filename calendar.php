@@ -131,6 +131,7 @@ $initialDate = $selectedMonth !== '' ? $selectedMonth . '-01' : '';
                 </div>
                 <div class="col-12 col-md-auto d-flex flex-wrap gap-2 app-header-actions">
                     <a class="btn btn-outline-secondary" href="index.php?trip_id=<?= (int)$tripId ?>"><i class="ti ti-arrow-left me-1"></i>Planner</a>
+                    <a id="calendarPdfButton" class="btn btn-primary" href="calendar-pdf.php?trip_id=<?= (int)$tripId ?><?= $selectedMonth !== '' ? '&month=' . h($selectedMonth) : '' ?>"><i class="ti ti-file-type-pdf me-1"></i>Calendar PDF</a>
                     <a class="btn btn-outline-primary" href="itinerary-pdf.php?trip_id=<?= (int)$tripId ?>" target="_blank" rel="noopener"><i class="ti ti-file-type-pdf me-1"></i>Itinerary PDF</a>
                 </div>
             </div>
@@ -236,9 +237,11 @@ $initialDate = $selectedMonth !== '' ? $selectedMonth . '-01' : '';
 <script>
 document.addEventListener('DOMContentLoaded', () => {
     const calendarEl = document.getElementById('tripCalendar');
+    const calendarPdfButton = document.getElementById('calendarPdfButton');
     const events = <?= $eventsJson ?: '[]' ?>;
     const calendar = new FullCalendar.Calendar(calendarEl, {
         initialView: 'dayGridMonth',
+        <?php if ($initialDate !== ''): ?>initialDate: '<?= h($initialDate) ?>',<?php endif; ?>
         height: 'auto',
         firstDay: 1,
         dayMaxEvents: 3,
@@ -259,6 +262,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 info.jsEvent.preventDefault();
                 window.location.href = info.event.url;
             }
+        },
+        datesSet(info) {
+            const month = info.view.currentStart.toISOString().slice(0, 7);
+            const pdfUrl = new URL('calendar-pdf.php', window.location.href);
+            pdfUrl.searchParams.set('trip_id', '<?= (int)$tripId ?>');
+            pdfUrl.searchParams.set('month', month);
+            calendarPdfButton.href = pdfUrl.pathname + pdfUrl.search;
+
+            const pageUrl = new URL(window.location.href);
+            pageUrl.searchParams.set('trip_id', '<?= (int)$tripId ?>');
+            pageUrl.searchParams.set('month', month);
+            window.history.replaceState({}, '', pageUrl.pathname + pageUrl.search + pageUrl.hash);
         },
         eventContent(info) {
             const props = info.event.extendedProps;
