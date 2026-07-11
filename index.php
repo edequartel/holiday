@@ -206,7 +206,7 @@ $packedItems = count(array_filter($items, fn($i) => (int)$i['packed'] === 1));
 $packedPercent = $totalItems ? round(($packedItems / $totalItems) * 100) : 0;
 $visiblePoints = array_values(array_filter($points, fn($point) => (int)($point['show_on_map'] ?? 1) === 1));
 $mapJson = json_encode($visiblePoints, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
-$mapDaySummaries = build_map_day_summaries($trip, $days);
+$mapDaySummaries = build_map_day_summaries($trip, $days, $visiblePoints);
 $mapDayJson = json_encode($mapDaySummaries, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
 
 function run_git_pull(): array
@@ -1343,7 +1343,7 @@ function day_summary_fields(array $day): array
     ];
 }
 
-function build_map_day_summaries(?array $trip, array $days): array
+function build_map_day_summaries(?array $trip, array $days, array $points): array
 {
     $summaries = [];
     $daysByDate = [];
@@ -1354,12 +1354,25 @@ function build_map_day_summaries(?array $trip, array $days): array
         }
     }
 
-    $timelineDates = trip_timeline_dates($trip);
-    if (!$timelineDates) {
-        $timelineDates = array_values(array_unique(array_map(fn($day) => (string)($day['day_date'] ?? ''), $days)));
-        $timelineDates = array_values(array_filter($timelineDates, fn($date) => normalize_point_date($date) !== ''));
-        sort($timelineDates);
+    $pointNamesByDate = [];
+    foreach ($points as $point) {
+        $date = point_itinerary_date($point);
+        if ($date === '') {
+            continue;
+        }
+        $name = trim((string)($point['name'] ?? ''));
+        if ($name !== '') {
+            $pointNamesByDate[$date][] = $name;
+        }
     }
+
+    $timelineDates = array_merge(
+        trip_timeline_dates($trip),
+        array_keys($daysByDate),
+        array_keys($pointNamesByDate)
+    );
+    $timelineDates = array_values(array_unique(array_filter($timelineDates, fn($date) => normalize_point_date($date) !== '')));
+    sort($timelineDates);
 
     foreach ($timelineDates as $index => $date) {
         $day = $daysByDate[$date] ?? [
@@ -1377,12 +1390,14 @@ function build_map_day_summaries(?array $trip, array $days): array
         $transport = trim((string)($day['transport'] ?? ''));
         $details = short_display_value((string)($day['details'] ?? ''), 150);
         $fallbackTitle = 'Trip day ' . ($index + 1);
+        $pointNames = array_slice(array_values(array_unique($pointNamesByDate[$date] ?? [])), 0, 3);
 
         $recapParts = array_values(array_filter([
             $location !== '' ? $location : '',
             $hotel !== '' ? 'Hotel: ' . $hotel : '',
             $transport !== '' ? 'Transport: ' . $transport : '',
             $details,
+            $pointNames ? 'Map: ' . implode(', ', $pointNames) : '',
         ], fn($value) => trim((string)$value) !== ''));
 
         $summaries[] = [
@@ -2018,8 +2033,8 @@ function selectMapDayByDate(date) {
 
 function updateMapDayControls() {
     const disabled = mapDays.length < 1;
-    document.getElementById('mapPrevDay')?.toggleAttribute('disabled', disabled);
-    document.getElementById('mapNextDay')?.toggleAttribute('disabled', disabled);
+    document.getElementById('mapPrevDay')?.toggleAttribute('disabled', mapDays.length < 2);
+    document.getElementById('mapNextDay')?.toggleAttribute('disabled', mapDays.length < 2);
     document.getElementById('mapDayDate')?.toggleAttribute('disabled', disabled);
 }
 
