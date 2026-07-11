@@ -1861,6 +1861,11 @@ const iconMap = {hotel:'🏨', parking:'🅿️', poi:'📍', restaurant:'🍜',
 const markers = [];
 const markersById = {};
 const routeLatLngs = [];
+let selectedMapDayIndex = 0;
+document.getElementById('mapPrevDay')?.addEventListener('click', () => selectMapDay(selectedMapDayIndex - 1, true));
+document.getElementById('mapNextDay')?.addEventListener('click', () => selectMapDay(selectedMapDayIndex + 1, true));
+document.getElementById('mapDayDate')?.addEventListener('change', event => selectMapDayByDate(event.target.value));
+selectMapDay(0, false);
 mapPoints.forEach(p => {
     const latLng = [parseFloat(p.latitude), parseFloat(p.longitude)];
     routeLatLngs.push(latLng);
@@ -1960,8 +1965,6 @@ function focusLocation(pointId) {
     document.getElementById('map').scrollIntoView({behavior: 'smooth', block: 'center'});
 }
 
-let selectedMapDayIndex = 0;
-
 function selectMapDay(nextIndex, shouldScroll = false) {
     if (!mapDays.length) {
         updateMapDayControls();
@@ -2054,11 +2057,6 @@ function pointDate(point) {
 function normalizeMatchText(value) {
     return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
-
-document.getElementById('mapPrevDay')?.addEventListener('click', () => selectMapDay(selectedMapDayIndex - 1, true));
-document.getElementById('mapNextDay')?.addEventListener('click', () => selectMapDay(selectedMapDayIndex + 1, true));
-document.getElementById('mapDayDate')?.addEventListener('change', event => selectMapDayByDate(event.target.value));
-selectMapDay(0, false);
 
 function escapeHtml(str) {
     return String(str).replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
