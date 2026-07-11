@@ -2042,8 +2042,9 @@ function updateMapDayControls() {
 function selectMapPoint(pointId, shouldScroll) {
     const marker = markersById[pointId];
     if (!marker) return;
-    if (allMarkersBounds) {
-        map.fitBounds(allMarkersBounds);
+    const latLng = marker.getLatLng();
+    if (!map.getBounds().pad(-0.08).contains(latLng)) {
+        map.panTo(latLng, {animate: true});
     }
     marker.openPopup();
     if (shouldScroll) {
