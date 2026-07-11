@@ -19,12 +19,15 @@
 .map-route-toggle {
     align-items: center;
     display: flex;
+    flex: 0 0 auto;
     height: 2.75rem;
-    margin: 0;
-    padding: 0 0.25rem;
+    margin: 0 0 0 auto;
+    min-width: 4.5rem;
+    padding: 0 0.5rem;
     white-space: nowrap;
 }
 .map-day-recap {
+    flex: 1 1 auto;
     line-height: 1.35;
     min-width: 0;
 }
@@ -282,7 +285,7 @@
     }
     .map-day-controls {
         display: grid;
-        grid-template-columns: 3rem minmax(0, 1fr) 3rem auto;
+        grid-template-columns: 3rem minmax(0, 1fr) 3rem;
         width: 100%;
     }
     .map-day-controls .btn {
@@ -290,6 +293,9 @@
     }
     .map-day-date-input {
         width: 100%;
+    }
+    .map-route-toggle {
+        margin-left: 0;
     }
     .page-header .page-title {
         font-size: 1.25rem;

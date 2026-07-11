@@ -1605,10 +1605,6 @@ document.addEventListener('submit', event => {
                         <button type="button" id="mapPrevDay" class="btn btn-icon btn-outline-primary" aria-label="Previous day" title="Previous day"><i class="ti ti-chevron-left"></i></button>
                         <input type="date" id="mapDayDate" class="form-control map-day-date-input" aria-label="Select itinerary date">
                         <button type="button" id="mapNextDay" class="btn btn-icon btn-outline-primary" aria-label="Next day" title="Next day"><i class="ti ti-chevron-right"></i></button>
-                        <label class="form-check map-route-toggle" title="Show route line between checked locations">
-                            <input id="mapRouteToggle" class="form-check-input" type="checkbox">
-                            <span class="form-check-label">Line</span>
-                        </label>
                     </div>
                     <div class="map-day-recap" aria-live="polite">
                         <div class="map-day-kicker" id="mapDayKicker">
@@ -1623,6 +1619,10 @@ document.addEventListener('submit', event => {
                         <div class="map-day-title" id="mapDayTitle">No itinerary day selected</div>
                         <div class="map-day-summary text-secondary" id="mapDaySummary">Use the arrows to jump through trip dates.</div>
                     </div>
+                    <label class="form-check map-route-toggle" title="Show route line between checked locations">
+                        <input id="mapRouteToggle" class="form-check-input" type="checkbox">
+                        <span class="form-check-label">Line</span>
+                    </label>
                 </div>
                 <div id="map"></div>
                 <div class="card-body no-print"><div class="row g-2">
