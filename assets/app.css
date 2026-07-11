@@ -13,6 +13,9 @@
     flex: 0 0 auto;
     gap: 0.5rem;
 }
+.map-day-date-input {
+    width: 10.5rem;
+}
 .map-day-recap {
     line-height: 1.35;
     min-width: 0;
@@ -34,6 +37,9 @@
 }
 .app-item-actions {
     justify-content: flex-start;
+}
+.app-point-date-form {
+    max-width: 12rem;
 }
 .itinerary-day,
 .list-group-item,
@@ -266,8 +272,15 @@
         align-items: flex-start;
         flex-direction: column;
     }
-    .map-day-controls,
+    .map-day-controls {
+        display: grid;
+        grid-template-columns: 3rem minmax(0, 1fr) 3rem;
+        width: 100%;
+    }
     .map-day-controls .btn {
+        width: 100%;
+    }
+    .map-day-date-input {
         width: 100%;
     }
     .page-header .page-title {
@@ -281,6 +294,7 @@
     .app-item-actions,
     .app-item-actions form,
     .app-item-actions .btn,
+    .app-point-date-form,
     .app-delete-day {
         width: 100%;
     }

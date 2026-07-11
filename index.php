@@ -113,8 +113,10 @@ if ($action === 'toggle_packed') {
 }
 
 if ($action === 'add_point') {
+    $pointDate = normalize_point_date((string)($_POST['point_date'] ?? ''));
+    $pointNotes = point_notes_with_date((string)($_POST['notes'] ?? ''), $pointDate);
     $stmt = $pdo->prepare('INSERT INTO map_points (trip_id, point_type, name, address, city, latitude, longitude, notes, source, show_on_map) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-    $stmt->execute([$tripIdPost, $_POST['point_type'], $_POST['name'], $_POST['address'], $_POST['city'], $_POST['latitude'], $_POST['longitude'], $_POST['notes'], 'manual', isset($_POST['show_on_map']) ? 1 : 0]);
+    $stmt->execute([$tripIdPost, $_POST['point_type'], $_POST['name'], $_POST['address'], $_POST['city'], $_POST['latitude'], $_POST['longitude'], $pointNotes, 'manual', isset($_POST['show_on_map']) ? 1 : 0]);
     redirect_to_trip($tripIdPost);
 }
 
@@ -127,6 +129,20 @@ if ($action === 'save_ai_point') {
 if ($action === 'toggle_point_map') {
     $stmt = $pdo->prepare('UPDATE map_points SET show_on_map=? WHERE id=? AND trip_id=?');
     $stmt->execute([isset($_POST['show_on_map']) ? 1 : 0, (int)$_POST['point_id'], $tripIdPost]);
+    redirect_to_trip($tripIdPost);
+}
+
+if ($action === 'update_point_date') {
+    $pointId = (int)($_POST['point_id'] ?? 0);
+    $stmt = $pdo->prepare('SELECT notes FROM map_points WHERE id=? AND trip_id=?');
+    $stmt->execute([$pointId, $tripIdPost]);
+    $point = $stmt->fetch();
+    if ($point) {
+        $pointDate = normalize_point_date((string)($_POST['point_date'] ?? ''));
+        $notes = point_notes_with_date((string)($point['notes'] ?? ''), $pointDate);
+        $stmt = $pdo->prepare('UPDATE map_points SET notes=? WHERE id=? AND trip_id=?');
+        $stmt->execute([$notes, $pointId, $tripIdPost]);
+    }
     redirect_to_trip($tripIdPost);
 }
 
@@ -281,6 +297,34 @@ function point_itinerary_date(array $point): string
     }
 
     return '';
+}
+
+function normalize_point_date(string $date): string
+{
+    $date = trim($date);
+    if ($date === '') {
+        return '';
+    }
+
+    $parsed = DateTimeImmutable::createFromFormat('!Y-m-d', $date);
+    return $parsed && $parsed->format('Y-m-d') === $date ? $date : '';
+}
+
+function point_notes_with_date(string $notes, string $date): string
+{
+    $notes = trim($notes);
+    $notes = trim(preg_replace('/(^|\R)Date:\s*\d{4}-\d{2}-\d{2}\s*/', "\n", $notes));
+
+    if ($date === '') {
+        $notes = trim(preg_replace('/\b\d{4}-\d{2}-\d{2}\b/', '', $notes, 1));
+        return $notes;
+    }
+
+    if (preg_match('/\b\d{4}-\d{2}-\d{2}\b/', $notes)) {
+        return trim(preg_replace('/\b\d{4}-\d{2}-\d{2}\b/', $date, $notes, 1));
+    }
+
+    return trim('Date: ' . $date . ($notes !== '' ? "\n" . $notes : ''));
 }
 
 function delete_uploaded_document_file(PDO $pdo, string $relativePath, int $deletedDayId): void
@@ -1494,6 +1538,7 @@ document.addEventListener('submit', event => {
                 <div class="map-day-bar border-bottom bg-light no-print">
                     <div class="map-day-controls">
                         <button type="button" id="mapPrevDay" class="btn btn-icon btn-outline-primary" aria-label="Previous day" title="Previous day"><i class="ti ti-chevron-left"></i></button>
+                        <input type="date" id="mapDayDate" class="form-control map-day-date-input" aria-label="Select itinerary date">
                         <button type="button" id="mapNextDay" class="btn btn-icon btn-outline-primary" aria-label="Next day" title="Next day"><i class="ti ti-chevron-right"></i></button>
                     </div>
                     <div class="map-day-recap" aria-live="polite">
@@ -1520,8 +1565,9 @@ document.addEventListener('submit', event => {
                         <div class="col-md-2"><input name="latitude" class="form-control" required placeholder="Latitude"></div>
                         <div class="col-md-2"><input name="longitude" class="form-control" required placeholder="Longitude"></div>
                         <div class="col-12 col-md-1"><button class="btn btn-primary w-100">Add</button></div>
+                        <div class="col-md-3"><input name="point_date" type="date" class="form-control" aria-label="Location date"></div>
                         <div class="col-md-6"><input name="address" class="form-control" placeholder="Address"></div>
-                        <div class="col-md-4"><input name="notes" class="form-control" placeholder="Notes"></div>
+                        <div class="col-md-3"><input name="notes" class="form-control" placeholder="Notes"></div>
                         <div class="col-md-2"><label class="form-check mt-2"><input name="show_on_map" class="form-check-input" type="checkbox" checked><span class="form-check-label">Show on map</span></label></div>
                     </form>
                     <?php if ($points): ?>
@@ -1546,6 +1592,13 @@ document.addEventListener('submit', event => {
                                                 <?php if ($point['notes']): ?><div class="small mt-1"><?= h($point['notes']) ?></div><?php endif; ?>
                                             </div>
                                             <div class="col-12 col-sm-auto d-flex flex-wrap gap-2 app-item-actions">
+                                                <form method="post" class="d-flex gap-1 app-point-date-form">
+                                                    <input type="hidden" name="action" value="update_point_date">
+                                                    <input type="hidden" name="trip_id" value="<?= $tripId ?>">
+                                                    <input type="hidden" name="point_id" value="<?= (int)$point['id'] ?>">
+                                                    <input name="point_date" type="date" class="form-control form-control-sm" value="<?= h(point_itinerary_date($point)) ?>" aria-label="Location date">
+                                                    <button class="btn btn-sm btn-outline-primary" aria-label="Save location date"><i class="ti ti-device-floppy"></i></button>
+                                                </form>
                                                 <form method="post" class="d-flex align-items-center">
                                                     <input type="hidden" name="action" value="toggle_point_map">
                                                     <input type="hidden" name="trip_id" value="<?= $tripId ?>">
@@ -1871,9 +1924,13 @@ function selectMapDay(nextIndex, shouldScroll = false) {
     const kicker = document.getElementById('mapDayKicker');
     const title = document.getElementById('mapDayTitle');
     const summary = document.getElementById('mapDaySummary');
+    const dateInput = document.getElementById('mapDayDate');
 
     if (kicker) {
         kicker.textContent = `Day ${day.index} of ${mapDays.length} · ${day.date || 'No date'}`;
+    }
+    if (dateInput) {
+        dateInput.value = day.date || '';
     }
     if (title) {
         title.textContent = day.title || 'Planned day';
@@ -1890,10 +1947,27 @@ function selectMapDay(nextIndex, shouldScroll = false) {
     updateMapDayControls();
 }
 
+function selectMapDayByDate(date) {
+    if (!date) return;
+    const index = mapDays.findIndex(day => day.date === date);
+    if (index >= 0) {
+        selectMapDay(index, true);
+        return;
+    }
+
+    const kicker = document.getElementById('mapDayKicker');
+    const title = document.getElementById('mapDayTitle');
+    const summary = document.getElementById('mapDaySummary');
+    if (kicker) kicker.textContent = `Selected date · ${date}`;
+    if (title) title.textContent = 'No itinerary for this date';
+    if (summary) summary.textContent = 'Choose another date, or add an itinerary day for this date.';
+}
+
 function updateMapDayControls() {
     const disabled = mapDays.length < 1;
     document.getElementById('mapPrevDay')?.toggleAttribute('disabled', disabled);
     document.getElementById('mapNextDay')?.toggleAttribute('disabled', disabled);
+    document.getElementById('mapDayDate')?.toggleAttribute('disabled', disabled);
 }
 
 function focusMapPoint(pointId, shouldScroll) {
@@ -1933,6 +2007,7 @@ function normalizeMatchText(value) {
 
 document.getElementById('mapPrevDay')?.addEventListener('click', () => selectMapDay(selectedMapDayIndex - 1, true));
 document.getElementById('mapNextDay')?.addEventListener('click', () => selectMapDay(selectedMapDayIndex + 1, true));
+document.getElementById('mapDayDate')?.addEventListener('change', event => selectMapDayByDate(event.target.value));
 selectMapDay(0, false);
 
 function escapeHtml(str) {
