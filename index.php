@@ -1915,7 +1915,8 @@ if (routeLatLngs.length > 1) {
     drawRouteArrows();
     map.on('zoomend moveend', drawRouteArrows);
 }
-if (markers.length > 1) map.fitBounds(L.featureGroup(markers).getBounds().pad(0.2));
+const allMarkersBounds = markers.length > 1 ? L.featureGroup(markers).getBounds().pad(0.2) : null;
+if (allMarkersBounds) map.fitBounds(allMarkersBounds);
 if (routeHalo) routeHalo.bringToFront();
 if (routeLine) routeLine.bringToFront();
 markers.forEach(marker => marker.bringToFront());
@@ -2010,7 +2011,7 @@ function selectMapDay(nextIndex, shouldScroll = false) {
     }
 
     if (point && markersById[point.id]) {
-        focusMapPoint(point.id, shouldScroll);
+        selectMapPoint(point.id, shouldScroll);
     }
     updateMapDayControls();
 }
@@ -2038,10 +2039,12 @@ function updateMapDayControls() {
     document.getElementById('mapDayDate')?.toggleAttribute('disabled', disabled);
 }
 
-function focusMapPoint(pointId, shouldScroll) {
+function selectMapPoint(pointId, shouldScroll) {
     const marker = markersById[pointId];
     if (!marker) return;
-    map.setView(marker.getLatLng(), 16);
+    if (allMarkersBounds) {
+        map.fitBounds(allMarkersBounds);
+    }
     marker.openPopup();
     if (shouldScroll) {
         document.getElementById('map').scrollIntoView({behavior: 'smooth', block: 'center'});
