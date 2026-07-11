@@ -206,7 +206,7 @@ $packedItems = count(array_filter($items, fn($i) => (int)$i['packed'] === 1));
 $packedPercent = $totalItems ? round(($packedItems / $totalItems) * 100) : 0;
 $visiblePoints = array_values(array_filter($points, fn($point) => (int)($point['show_on_map'] ?? 1) === 1));
 $mapJson = json_encode($visiblePoints, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
-$mapDaySummaries = build_map_day_summaries($days);
+$mapDaySummaries = build_map_day_summaries($trip, $days);
 $mapDayJson = json_encode($mapDaySummaries, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
 
 function run_git_pull(): array
@@ -1343,15 +1343,40 @@ function day_summary_fields(array $day): array
     ];
 }
 
-function build_map_day_summaries(array $days): array
+function build_map_day_summaries(?array $trip, array $days): array
 {
     $summaries = [];
-    foreach ($days as $index => $day) {
-        $title = trim((string)($day['title'] ?? '')) ?: 'Planned day';
+    $daysByDate = [];
+    foreach ($days as $day) {
+        $date = normalize_point_date((string)($day['day_date'] ?? ''));
+        if ($date !== '' && !isset($daysByDate[$date])) {
+            $daysByDate[$date] = $day;
+        }
+    }
+
+    $timelineDates = trip_timeline_dates($trip);
+    if (!$timelineDates) {
+        $timelineDates = array_values(array_unique(array_map(fn($day) => (string)($day['day_date'] ?? ''), $days)));
+        $timelineDates = array_values(array_filter($timelineDates, fn($date) => normalize_point_date($date) !== ''));
+        sort($timelineDates);
+    }
+
+    foreach ($timelineDates as $index => $date) {
+        $day = $daysByDate[$date] ?? [
+            'id' => 0,
+            'day_date' => $date,
+            'title' => '',
+            'location' => '',
+            'hotel' => '',
+            'transport' => '',
+            'details' => '',
+        ];
+        $title = trim((string)($day['title'] ?? ''));
         $location = trim((string)($day['location'] ?? ''));
         $hotel = trim((string)($day['hotel'] ?? ''));
         $transport = trim((string)($day['transport'] ?? ''));
         $details = short_display_value((string)($day['details'] ?? ''), 150);
+        $fallbackTitle = 'Trip day ' . ($index + 1);
 
         $recapParts = array_values(array_filter([
             $location !== '' ? $location : '',
@@ -1363,17 +1388,42 @@ function build_map_day_summaries(array $days): array
         $summaries[] = [
             'id' => (int)($day['id'] ?? 0),
             'index' => $index + 1,
-            'date' => (string)($day['day_date'] ?? ''),
-            'title' => $title,
+            'date' => $date,
+            'title' => $title !== '' ? $title : $fallbackTitle,
             'location' => $location,
             'hotel' => $hotel,
             'transport' => $transport,
             'details' => $details,
-            'recap' => implode(' · ', $recapParts),
+            'recap' => implode(' · ', $recapParts) ?: 'No plans entered for this date yet.',
         ];
     }
 
     return $summaries;
+}
+
+function trip_timeline_dates(?array $trip): array
+{
+    if (!$trip) {
+        return [];
+    }
+
+    $start = normalize_point_date((string)($trip['start_date'] ?? ''));
+    $end = normalize_point_date((string)($trip['end_date'] ?? ''));
+    if ($start === '') {
+        return [];
+    }
+    if ($end === '' || $end < $start) {
+        $end = $start;
+    }
+
+    $startDate = new DateTimeImmutable($start);
+    $endDate = new DateTimeImmutable($end);
+    $dates = [];
+    for ($date = $startDate, $count = 0; $date <= $endDate && $count < 370; $date = $date->modify('+1 day'), $count++) {
+        $dates[] = $date->format('Y-m-d');
+    }
+
+    return $dates;
 }
 ?>
 <!doctype html>
@@ -1937,7 +1987,7 @@ function selectMapDay(nextIndex, shouldScroll = false) {
     }
     if (summary) {
         const place = point ? (point.name || point.address || point.city || '') : (day.location || day.hotel || '');
-        const recap = day.recap || 'No recap details yet.';
+        const recap = day.recap || 'No plans entered for this date yet.';
         summary.textContent = place ? `${recap} · Map: ${place}` : `${recap} · No matching map location yet.`;
     }
 
