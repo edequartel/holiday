@@ -1605,11 +1605,15 @@ document.addEventListener('submit', event => {
                         <button type="button" id="mapPrevDay" class="btn btn-icon btn-outline-primary" aria-label="Previous day" title="Previous day"><i class="ti ti-chevron-left"></i></button>
                         <input type="date" id="mapDayDate" class="form-control map-day-date-input" aria-label="Select itinerary date">
                         <button type="button" id="mapNextDay" class="btn btn-icon btn-outline-primary" aria-label="Next day" title="Next day"><i class="ti ti-chevron-right"></i></button>
+                        <label class="form-check map-route-toggle" title="Show route line between checked locations">
+                            <input id="mapRouteToggle" class="form-check-input" type="checkbox">
+                            <span class="form-check-label">Line</span>
+                        </label>
                     </div>
                     <div class="map-day-recap" aria-live="polite">
                         <div class="map-day-kicker" id="mapDayKicker">
                             <?php if (count($visiblePoints) > 1): ?>
-                                <i class="ti ti-route me-1"></i>Route shown for <?= count($visiblePoints) ?> checked locations, sorted by date.
+                                <i class="ti ti-route me-1"></i><?= count($visiblePoints) ?> checked locations, sorted by date. Turn on Line to show the route.
                             <?php elseif (count($visiblePoints) === 1): ?>
                                 <i class="ti ti-route me-1"></i>Check at least one more location to show the route line.
                             <?php else: ?>
@@ -1880,6 +1884,7 @@ let selectedMapDayIndex = 0;
 document.getElementById('mapPrevDay')?.addEventListener('click', () => selectMapDay(selectedMapDayIndex - 1, true));
 document.getElementById('mapNextDay')?.addEventListener('click', () => selectMapDay(selectedMapDayIndex + 1, true));
 document.getElementById('mapDayDate')?.addEventListener('change', event => selectMapDayByDate(event.target.value));
+document.getElementById('mapRouteToggle')?.addEventListener('change', event => setRouteVisible(event.target.checked));
 selectMapDay(0, false);
 mapPoints.forEach(p => {
     const latLng = [parseFloat(p.latitude), parseFloat(p.longitude)];
@@ -1893,7 +1898,33 @@ let routeHalo = null;
 let routeLine = null;
 const routeArrows = L.layerGroup().addTo(map);
 const routeSegments = [];
-if (routeLatLngs.length > 1) {
+let routeMoveHandlerAttached = false;
+
+function setRouteVisible(isVisible) {
+    clearRouteLine();
+    if (!isVisible || routeLatLngs.length < 2) return;
+
+    drawRouteLine();
+    if (!routeMoveHandlerAttached) {
+        map.on('zoomend moveend', drawRouteArrows);
+        routeMoveHandlerAttached = true;
+    }
+}
+
+function clearRouteLine() {
+    if (routeHalo) {
+        map.removeLayer(routeHalo);
+        routeHalo = null;
+    }
+    if (routeLine) {
+        map.removeLayer(routeLine);
+        routeLine = null;
+    }
+    routeArrows.clearLayers();
+    routeSegments.length = 0;
+}
+
+function drawRouteLine() {
     const curvedRoute = [];
     for (let i = 0; i < routeLatLngs.length - 1; i++) {
         const segment = geodesicSegment(routeLatLngs[i], routeLatLngs[i + 1], 48);
@@ -1913,12 +1944,12 @@ if (routeLatLngs.length > 1) {
         lineCap: 'round'
     }).addTo(map);
     drawRouteArrows();
-    map.on('zoomend moveend', drawRouteArrows);
+    routeHalo.bringToFront();
+    routeLine.bringToFront();
+    markers.forEach(marker => marker.bringToFront());
 }
 const allMarkersBounds = markers.length > 1 ? L.featureGroup(markers).getBounds().pad(0.2) : null;
 if (allMarkersBounds) map.fitBounds(allMarkersBounds);
-if (routeHalo) routeHalo.bringToFront();
-if (routeLine) routeLine.bringToFront();
 markers.forEach(marker => marker.bringToFront());
 
 function drawRouteArrows() {
