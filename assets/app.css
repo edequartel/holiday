@@ -2,6 +2,32 @@
     height: 520px;
     border-radius: 0 0 0.5rem 0.5rem;
 }
+.map-day-bar {
+    align-items: center;
+    display: flex;
+    gap: 0.9rem;
+    padding: 0.75rem 1rem;
+}
+.map-day-controls {
+    display: flex;
+    flex: 0 0 auto;
+    gap: 0.5rem;
+}
+.map-day-recap {
+    line-height: 1.35;
+    min-width: 0;
+}
+.map-day-kicker {
+    color: var(--tblr-secondary);
+    font-size: 0.75rem;
+}
+.map-day-title {
+    font-size: 1rem;
+    font-weight: 700;
+}
+.map-day-summary {
+    font-size: 0.85rem;
+}
 .app-header-actions .btn,
 .app-header-actions form {
     max-width: 100%;
@@ -235,6 +261,14 @@
 @media (max-width: 575.98px) {
     #map {
         height: 360px;
+    }
+    .map-day-bar {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+    .map-day-controls,
+    .map-day-controls .btn {
+        width: 100%;
     }
     .page-header .page-title {
         font-size: 1.25rem;

@@ -190,6 +190,8 @@ $packedItems = count(array_filter($items, fn($i) => (int)$i['packed'] === 1));
 $packedPercent = $totalItems ? round(($packedItems / $totalItems) * 100) : 0;
 $visiblePoints = array_values(array_filter($points, fn($point) => (int)($point['show_on_map'] ?? 1) === 1));
 $mapJson = json_encode($visiblePoints, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
+$mapDaySummaries = build_map_day_summaries($days);
+$mapDayJson = json_encode($mapDaySummaries, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT);
 
 function run_git_pull(): array
 {
@@ -1296,6 +1298,39 @@ function day_summary_fields(array $day): array
         'URL' => $day['url'] ?? '',
     ];
 }
+
+function build_map_day_summaries(array $days): array
+{
+    $summaries = [];
+    foreach ($days as $index => $day) {
+        $title = trim((string)($day['title'] ?? '')) ?: 'Planned day';
+        $location = trim((string)($day['location'] ?? ''));
+        $hotel = trim((string)($day['hotel'] ?? ''));
+        $transport = trim((string)($day['transport'] ?? ''));
+        $details = short_display_value((string)($day['details'] ?? ''), 150);
+
+        $recapParts = array_values(array_filter([
+            $location !== '' ? $location : '',
+            $hotel !== '' ? 'Hotel: ' . $hotel : '',
+            $transport !== '' ? 'Transport: ' . $transport : '',
+            $details,
+        ], fn($value) => trim((string)$value) !== ''));
+
+        $summaries[] = [
+            'id' => (int)($day['id'] ?? 0),
+            'index' => $index + 1,
+            'date' => (string)($day['day_date'] ?? ''),
+            'title' => $title,
+            'location' => $location,
+            'hotel' => $hotel,
+            'transport' => $transport,
+            'details' => $details,
+            'recap' => implode(' · ', $recapParts),
+        ];
+    }
+
+    return $summaries;
+}
 ?>
 <!doctype html>
 <html lang="en">
@@ -1456,14 +1491,24 @@ document.addEventListener('submit', event => {
             </div>
 
             <div class="card mb-3"><div class="card-header"><h3 class="card-title"><i class="ti ti-map-pin me-2"></i>Map: hotels, parking and POI</h3></div>
-                <div class="px-3 py-2 border-bottom bg-light text-secondary small">
-                    <?php if (count($visiblePoints) > 1): ?>
-                        <i class="ti ti-route me-1"></i>Route shown for <?= count($visiblePoints) ?> checked locations, sorted by date.
-                    <?php elseif (count($visiblePoints) === 1): ?>
-                        <i class="ti ti-route me-1"></i>Check at least one more location to show the route line.
-                    <?php else: ?>
-                        <i class="ti ti-route me-1"></i>No checked locations are visible on the map.
-                    <?php endif; ?>
+                <div class="map-day-bar border-bottom bg-light no-print">
+                    <div class="map-day-controls">
+                        <button type="button" id="mapPrevDay" class="btn btn-icon btn-outline-primary" aria-label="Previous day" title="Previous day"><i class="ti ti-chevron-left"></i></button>
+                        <button type="button" id="mapNextDay" class="btn btn-icon btn-outline-primary" aria-label="Next day" title="Next day"><i class="ti ti-chevron-right"></i></button>
+                    </div>
+                    <div class="map-day-recap" aria-live="polite">
+                        <div class="map-day-kicker" id="mapDayKicker">
+                            <?php if (count($visiblePoints) > 1): ?>
+                                <i class="ti ti-route me-1"></i>Route shown for <?= count($visiblePoints) ?> checked locations, sorted by date.
+                            <?php elseif (count($visiblePoints) === 1): ?>
+                                <i class="ti ti-route me-1"></i>Check at least one more location to show the route line.
+                            <?php else: ?>
+                                <i class="ti ti-route me-1"></i>No checked locations are visible on the map.
+                            <?php endif; ?>
+                        </div>
+                        <div class="map-day-title" id="mapDayTitle">No itinerary day selected</div>
+                        <div class="map-day-summary text-secondary" id="mapDaySummary">Use the arrows to jump through trip dates.</div>
+                    </div>
                 </div>
                 <div id="map"></div>
                 <div class="card-body no-print"><div class="row g-2">
@@ -1702,6 +1747,7 @@ document.addEventListener('submit', event => {
 <script>
 const tripId = <?= (int)$tripId ?>;
 const mapPoints = <?= $mapJson ?: '[]' ?>;
+const mapDays = <?= $mapDayJson ?: '[]' ?>;
 const defaultCenter = mapPoints.length ? [parseFloat(mapPoints[0].latitude), parseFloat(mapPoints[0].longitude)] : [23.6978, 120.9605];
 const map = L.map('map').setView(defaultCenter, mapPoints.length ? 12 : 7);
 L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
@@ -1810,6 +1856,84 @@ function focusLocation(pointId) {
     marker.openPopup();
     document.getElementById('map').scrollIntoView({behavior: 'smooth', block: 'center'});
 }
+
+let selectedMapDayIndex = 0;
+
+function selectMapDay(nextIndex, shouldScroll = false) {
+    if (!mapDays.length) {
+        updateMapDayControls();
+        return;
+    }
+
+    selectedMapDayIndex = (nextIndex + mapDays.length) % mapDays.length;
+    const day = mapDays[selectedMapDayIndex];
+    const point = findPointForDay(day);
+    const kicker = document.getElementById('mapDayKicker');
+    const title = document.getElementById('mapDayTitle');
+    const summary = document.getElementById('mapDaySummary');
+
+    if (kicker) {
+        kicker.textContent = `Day ${day.index} of ${mapDays.length} · ${day.date || 'No date'}`;
+    }
+    if (title) {
+        title.textContent = day.title || 'Planned day';
+    }
+    if (summary) {
+        const place = point ? (point.name || point.address || point.city || '') : (day.location || day.hotel || '');
+        const recap = day.recap || 'No recap details yet.';
+        summary.textContent = place ? `${recap} · Map: ${place}` : `${recap} · No matching map location yet.`;
+    }
+
+    if (point && markersById[point.id]) {
+        focusMapPoint(point.id, shouldScroll);
+    }
+    updateMapDayControls();
+}
+
+function updateMapDayControls() {
+    const disabled = mapDays.length < 1;
+    document.getElementById('mapPrevDay')?.toggleAttribute('disabled', disabled);
+    document.getElementById('mapNextDay')?.toggleAttribute('disabled', disabled);
+}
+
+function focusMapPoint(pointId, shouldScroll) {
+    const marker = markersById[pointId];
+    if (!marker) return;
+    map.setView(marker.getLatLng(), 16);
+    marker.openPopup();
+    if (shouldScroll) {
+        document.getElementById('map').scrollIntoView({behavior: 'smooth', block: 'center'});
+    }
+}
+
+function findPointForDay(day) {
+    if (!day) return null;
+
+    const datedPoint = mapPoints.find(point => pointDate(point) === day.date);
+    if (datedPoint) return datedPoint;
+
+    const dayTerms = [day.title, day.location, day.hotel].map(normalizeMatchText).filter(Boolean);
+    if (!dayTerms.length) return null;
+
+    return mapPoints.find(point => {
+        const pointText = normalizeMatchText([point.name, point.address, point.city, point.notes].filter(Boolean).join(' '));
+        if (pointText.length < 3) return false;
+        return dayTerms.some(term => term.length >= 3 && (pointText.includes(term) || term.includes(pointText)));
+    }) || null;
+}
+
+function pointDate(point) {
+    const match = String(point.notes || '').match(/\d{4}-\d{2}-\d{2}/);
+    return match ? match[0] : '';
+}
+
+function normalizeMatchText(value) {
+    return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+document.getElementById('mapPrevDay')?.addEventListener('click', () => selectMapDay(selectedMapDayIndex - 1, true));
+document.getElementById('mapNextDay')?.addEventListener('click', () => selectMapDay(selectedMapDayIndex + 1, true));
+selectMapDay(0, false);
 
 function escapeHtml(str) {
     return String(str).replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
